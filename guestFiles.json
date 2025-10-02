@@ -1,0 +1,13 @@
+app.get("/guest-info/:token", (req, res) => {
+  const token = req.params.token;
+  if (!fs.existsSync(guestDB)) return res.json({ error: "Not found" });
+
+  const data = JSON.parse(fs.readFileSync(guestDB));
+  const entry = data.find(e => e.token === token);
+
+  if (!entry) return res.json({ error: "Not found" });
+
+  res.json({
+    expiresAt: entry.timestamp + 24 * 60 * 60 * 1000
+  });
+});

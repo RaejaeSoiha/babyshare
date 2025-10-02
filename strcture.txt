@@ -1,0 +1,20 @@
+project/
+ ├── server.js           # main file (your big code)
+ ├── users.json          # auto-created
+ ├── shares.json         # auto-created
+ ├── uploads/
+ │   ├── users/
+ │   └── guests/
+ ├── public/
+ │   ├── home.html
+ │   ├── login.html
+ │   ├── register.html
+ │   ├── guest-upload.html
+ │   ├── guest-login.html
+ │   ├── style.css
+ │   └── js/particles.js
+ ├── cert/               # SSL certs (online mode)
+ │   ├── cert.pem
+ │   └── key.pem
+ ├── .env
+ └── package.json

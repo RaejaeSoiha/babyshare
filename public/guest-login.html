@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>🔑 Guest File Access - Secure Share</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    body {
+      background:#1c1c1d;
+      margin:0;
+      padding:0;
+      display:flex;
+      justify-content:center;
+      align-items:center;
+      height:100vh;
+      font-family:"Segoe UI",sans-serif;
+      position: relative;
+      overflow: hidden;
+    }
+    .container {
+      background:#fff;
+      padding:2rem 3rem;
+      border-radius:15px;
+      box-shadow:0 8px 20px rgba(0,0,0,0.1);
+      text-align:center;
+      max-width:540px;
+      width:100%;
+      z-index:2;
+      position:relative;
+    }
+    #bg-canvas {
+      position:fixed;
+      top:0;
+      left:0;
+      width:100%;
+      height:100%;
+      z-index:1;
+    }
+  </style>
+</head>
+<body>
+  <!-- Animated Background -->
+  <canvas id="bg-canvas"></canvas>
+
+  <div class="container card">
+    <h1>Guest File Access</h1>
+
+    <div class="alert info">
+      ⚠️ This file is temporary. Expires in <span id="countdown">loading...</span>.
+    </div>
+
+    <p>
+      <span class="badge encrypted">🔒 Encrypted</span>
+      <span class="badge expiry">⏳ 24h retention</span>
+    </p>
+
+    <form id="downloadForm" method="POST" action="/guest-login" class="form">
+      <input type="hidden" name="token" id="token">
+      <div class="form-group">
+        <label for="password">Enter password to download:</label>
+        <input type="password" id="password" name="password" placeholder="Enter password" required>
+      </div>
+      <button id="downloadBtn" type="submit" class="btn-primary">⬇ Download File</button>
+    </form>
+
+    <p id="errorMsg" class="error-msg"></p>
+    <p id="retryLink" class="retry-link" style="display:none;">
+      ⬆ Want to share again? <a href="/guest-upload">Upload a new file</a>
+    </p>
+  </div>
+
+  <!-- Countdown + token setup -->
+  <script>
+    const token = new URLSearchParams(window.location.search).get("token") || "";
+    document.getElementById("token").value = token;
+    const btn = document.getElementById("downloadBtn");
+    const errorMsg = document.getElementById("errorMsg");
+    const retryLink = document.getElementById("retryLink");
+
+    if (token) {
+      fetch("/guest-info/" + token)
+        .then(r => r.json())
+        .then(info => {
+          if (info.error) {
+            document.getElementById("countdown").innerText = "expired";
+            btn.disabled = true;
+            errorMsg.innerText = " This file has expired and can no longer be downloaded.";
+            retryLink.style.display = "block";
+            return;
+          }
+
+          const expiry = new Date(info.expiresAt);
+
+          function updateCountdown() {
+            const now = new Date();
+            const diff = expiry - now;
+            if (diff <= 0) {
+              document.getElementById("countdown").innerText = "expired";
+              btn.disabled = true;
+              errorMsg.innerText = " This file has expired and can no longer be downloaded.";
+              retryLink.style.display = "block";
+              return;
+            }
+            const hours = Math.floor(diff / (1000 * 60 * 60));
+            const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+            const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+            document.getElementById("countdown").innerText =
+              `${hours}h ${minutes}m ${seconds}s`;
+          }
+
+          updateCountdown();
+          setInterval(updateCountdown, 1000);
+        });
+    }
+  </script>
+
+  <!-- Particle Animation -->
+  <script src="/js/particles.js"></script>
+</body>
+</html>

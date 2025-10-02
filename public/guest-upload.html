@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>📤 Guest Upload - Baby Share</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    body {
+      margin: 0;
+      font-family: "Segoe UI", sans-serif;
+      background: #0d1117;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      position: relative;
+      color: #f5f5f5;
+    }
+
+    #bg-canvas {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 0;
+    }
+
+    /* Glassmorphic Container */
+    .container {
+      background: rgba(20, 20, 20, 0.85);
+      backdrop-filter: blur(14px);
+      border-radius: 18px;
+      padding: 2.5rem 2rem;
+      max-width: 450px;
+      width: 95%;
+      text-align: center;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+      z-index: 2;
+      position: relative;
+    }
+
+    h1 {
+      font-size: 1.8rem;
+      margin-bottom: 1rem;
+      color: #fff;
+    }
+
+    /* Form Styling */
+    form {
+      margin-top: 1.2rem;
+      text-align: left;
+    }
+
+    .form-group {
+      margin-bottom: 1.5rem;
+      position: relative;
+    }
+
+    .form-group i {
+      position: absolute;
+      top: 50%;
+      left: 12px;
+      transform: translateY(-50%);
+      color: #999;
+      font-size: 1rem;
+    }
+
+    input[type="file"],
+    input[type="password"],
+    input[type="text"] {
+      width: 100%;
+      padding: 12px 12px 12px 38px;
+      border: none;
+      border-radius: 8px;
+      background: #f9fafc;
+      color: #111;
+      font-size: 1rem;
+      box-shadow: inset 0 1px 3px rgba(0,0,0,0.2);
+    }
+
+    input:focus {
+      outline: 2px solid #0078ff;
+      background: #fff;
+    }
+
+    /* Upload Button */
+    .btn-primary {
+      width: 100%;
+      padding: 12px;
+      background: #0078ff;
+      color: #fff;
+      font-weight: 600;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-size: 1rem;
+    }
+
+    .btn-primary:hover {
+      background: #005fcc;
+      box-shadow: 0 0 12px rgba(0,120,255,0.6);
+    }
+
+    /* Links */
+    .links {
+      margin-top: 1.5rem;
+      font-size: 0.95rem;
+      color: #aaa;
+      text-align: center;
+    }
+
+    .links a {
+      color: #58a6ff;
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    .links a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <!-- Animated Background -->
+  <canvas id="bg-canvas"></canvas>
+
+  <div class="container">
+    <h1>📤 Upload Here</h1>
+    <form action="/guest-upload" method="POST" enctype="multipart/form-data" class="form">
+      
+      <!-- File Upload -->
+      <div class="form-group">
+        <i>📁</i>
+        <input type="file" id="file" name="file" required>
+      </div>
+
+      <!-- Label/Note -->
+      <div class="form-group">
+        <i>📝</i>
+        <input type="text" id="label" name="label" placeholder="Add a note or label (optional)">
+      </div>
+
+      <!-- Password -->
+      <div class="form-group">
+        <i>🔑</i>
+        <input type="password" id="password" name="password" placeholder="Set a password for download (optional)">
+        <small style="color:#aaa; font-size:0.85rem; margin-left:38px;">
+          Leave blank if you don’t want a password
+        </small>
+      </div>
+
+
+      <!-- Submit -->
+      <button type="submit" class="btn-primary">⬆ Upload</button>
+    </form>
+
+    <div class="links">
+      <p> <a href="/">Home</a> | <a href="/login">Login</a> | <a href="/register">Register</a></p>
+    </div>
+  </div>
+
+  <!-- Particle Animation -->
+  <script src="/js/particles.js"></script>
+  <script>
+    particlesJS.load('bg-canvas', '/js/particles.json', function() {
+      console.log('Particles loaded on Guest Upload page');
+    });
+  </script>
+</body>
+</html>

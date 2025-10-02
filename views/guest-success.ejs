@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>File Uploaded</title>
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    body {
+      background: #1c1c1d;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      font-family: "Segoe UI", sans-serif;
+      margin: 0;
+      padding: 0;
+    }
+    .card {
+      background: #fff;
+      padding: 2rem 3rem;
+      border-radius: 15px;
+      box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+      text-align: center;
+      max-width: 520px;
+      width: 100%;
+    }
+    h2 {
+      color: #28a745;
+      margin-bottom: 1rem;
+    }
+    .badge {
+      display: inline-block;
+      margin: 10px 0;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-weight: bold;
+      font-size: 14px;
+    }
+    .expiry {
+      background: #fff3e0;
+      color: #ff9500;
+    }
+    .qr-box img {
+      margin-top: 15px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 6px;
+      background: #fff;
+      max-width: 180px;
+    }
+    .link-box {
+      margin: 15px 0;
+    }
+    .password-box {
+      background: #f7f7f7;
+      padding: 10px;
+      border: 1px dashed #bbb;
+      border-radius: 6px;
+      font-size: 16px;
+      font-weight: bold;
+    }
+    a {
+      color: #0078ff;
+      font-weight: bold;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>✅ File Uploaded Successfully!</h2>
+
+    <div class="link-box">
+      <p><b>Download Link:</b><br>
+        <a href="<%= link %>" target="_blank"><%= link %></a>
+      </p>
+    </div>
+
+    <div class="password-box">
+      Password: <%= password %>
+    </div>
+
+    <p><span class="badge expiry">⏳ Valid for 24h</span></p>
+
+    <p><b>📱 Scan QR Code:</b></p>
+    <div class="qr-box">
+      <img src="<%= qrCode %>" alt="QR Code">
+    </div>
+
+    <br>
+    <p><a href="/guest-upload">⬆ Upload another file</a></p>
+  </div>
+</body>
+</html>

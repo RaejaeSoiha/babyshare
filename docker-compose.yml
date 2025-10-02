@@ -1,0 +1,31 @@
+# docker-compose.yml
+
+services:
+  babyshare:
+    build: .
+    container_name: babyshare
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./uploads:/app/uploads
+      - ./users.json:/app/users.json
+      - ./shares.json:/app/shares.json
+    ports:
+      - "3000:3000"
+    environment:
+      - VIRTUAL_HOST=${LAN_IP},localhost
+      - VIRTUAL_PORT=3000
+
+  nginx-proxy:
+    image: jwilder/nginx-proxy:alpine
+    container_name: nginx-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+      - ./nginx/vhost.d:/etc/nginx/vhost.d
+      - ./nginx/html:/usr/share/nginx/html

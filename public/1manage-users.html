@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>⚙ Manage Users - LAN File Share</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    body {
+      margin: 0;
+      font-family: "Segoe UI", sans-serif;
+      background: #1c1c1d;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      position: relative;
+    }
+    #particles-js {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 0;
+    }
+    .container {
+      background: #fff;
+      padding: 2rem 3rem;
+      border-radius: 15px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.25);
+      text-align: center;
+      max-width: 700px;
+      width: 95%;
+      z-index: 1;
+      position: relative;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1rem;
+    }
+    table th, table td {
+      border: 1px solid #ddd;
+      padding: 0.6rem;
+      text-align: center;
+    }
+    table th {
+      background: #f4f4f4;
+    }
+    .stats {
+      margin: 1rem 0;
+      font-size: 1rem;
+      font-weight: bold;
+    }
+    .delete-btn {
+      color: red;
+      font-weight: bold;
+      text-decoration: none;
+    }
+    .delete-btn:hover {
+      text-decoration: underline;
+    }
+    .btn-primary {
+      margin-top: 1rem;
+      padding: 0.6rem 1.2rem;
+      border: none;
+      border-radius: 6px;
+      background: #007bff;
+      color: #fff;
+      cursor: pointer;
+      font-size: 1rem;
+    }
+    .btn-primary:hover {
+      background: #0056b3;
+    }
+  </style>
+</head>
+<body>
+  <!-- Background -->
+  <div id="particles-js"></div>
+
+  <div class="container card">
+    <h1>⚙ Manage Users</h1>
+
+    <form method="POST" action="/add-user" class="form">
+      <div class="form-group">
+        <label for="username">New Username</label>
+        <input id="username" name="username" placeholder="Username" required>
+      </div>
+
+      <div class="form-group">
+        <label for="password">New Password</label>
+        <input id="password" name="password" placeholder="Password" required>
+      </div>
+
+      <button class="btn-primary">➕ Add User</button>
+    </form>
+
+    <div class="stats">
+      👥 Total Users: <span id="userCount">0</span> | 👤 Guests Active: <span id="guestCount">0</span>
+    </div>
+
+    <h2>📋 Current Users</h2>
+    <table id="users">
+      <thead>
+        <tr>
+          <th>Username</th>
+          <th>Password (hash)</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <p><a href="/list">⬅ Back to Files</a></p>
+  </div>
+
+  <!-- Particles.js -->
+  <script src="/js/particles.js"></script>
+  <script>
+    particlesJS.load('particles-js', '/js/particles.json', function() {
+      console.log('Particles.js loaded on Manage Users page');
+    });
+
+    // Load users
+    fetch('/api/users').then(r => r.json()).then(users => {
+      const tbody = document.querySelector('#users tbody');
+      const userCount = Object.keys(users).length;
+      document.getElementById('userCount').textContent = userCount;
+
+      Object.entries(users).forEach(([u, p]) => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td><b>${u}</b></td>
+          <td>${u === 'admin' ? '(protected)' : '🔒 hashed'}</td>
+          <td>${u === 'admin' ? '—' : `<a href="/remove-user/${u}" class="delete-btn">🗑 Remove</a>`}</td>
+        `;
+        tbody.appendChild(row);
+      });
+    });
+
+    // Load guest count
+    fetch('/shares.json')
+      .then(r => r.json())
+      .then(data => {
+        const guestCount = Object.keys(data.guests || {}).length;
+        document.getElementById('guestCount').textContent = guestCount;
+      });
+  </script>
+</body>
+</html>

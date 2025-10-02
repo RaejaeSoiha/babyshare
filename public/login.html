@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Login - Baby Share</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    body {
+      background:#0d1117;
+      margin:0;
+      padding:0;
+      display:flex;
+      justify-content:center;
+      align-items:center;
+      height:100vh;
+      font-family:"Segoe UI",sans-serif;
+      position: relative;
+      overflow: hidden;
+      color:#f5f5f5;
+    }
+
+    #bg-canvas {
+      position:fixed;
+      top:0; left:0;
+      width:100%; height:100%;
+      z-index:1;
+    }
+
+    /* --- Dark Glassmorphic Container --- */
+    .container {
+      position:relative;
+      z-index:2;
+      max-width:420px;
+      width:100%;
+      padding:2.5rem 2rem;
+      border-radius:16px;
+      background:rgba(20, 20, 20, 0); /* darker glass */
+      backdrop-filter: blur(14px);
+      box-shadow:0 8px 32px rgba(0,0,0,0.6);
+      text-align:center;
+    }
+
+    h1 {
+      margin-bottom:0.5rem;
+      font-size:2rem;
+      color:#fff;
+    }
+
+    /* --- Badges --- */
+    .badge {
+      padding:6px 12px;
+      border-radius:12px;
+      font-size:0.85rem;
+      margin:0 5px;
+      font-weight:600;
+    }
+    .encrypted { background:#1f6feb; color:#fff; }
+    .expiry { background:#bb8009; color:#fff; }
+
+    /* --- Form --- */
+    form {
+      margin-top:1.5rem;
+      text-align:left;
+    }
+
+    .form-group {
+      position:relative;
+      margin-bottom:1.2rem;
+    }
+
+    .form-group i {
+      position:absolute;
+      top:50%;
+      left:12px;
+      transform:translateY(-50%);
+      color:#888;
+      font-size:1.1rem;
+    }
+
+    input {
+      width:100%;
+      padding:12px 12px 12px 40px; /* padding left for icon */
+      border:none;
+      border-radius:8px;
+      background:#f9fafc;
+      color:#111;
+      font-size:1rem;
+      box-shadow: inset 0 1px 3px rgba(0,0,0,0.2);
+    }
+    input::placeholder { color:#666; }
+    input:focus {
+      outline:2px solid #238636;
+      background:#fff;
+    }
+
+    /* --- Button --- */
+    .btn-primary {
+      width:100%;
+      padding:12px;
+      background:#238636;
+      color:#fff;
+      font-weight:600;
+      border:none;
+      border-radius:8px;
+      cursor:pointer;
+      transition:background 0.2s;
+    }
+    .btn-primary:hover { background:#2ea043; }
+
+    /* --- Info Box --- */
+    .info-box {
+      margin-top:1.5rem;
+      padding:1rem;
+      border-radius:10px;
+      background:rgba(255,255,255,0.05);
+      border:1px solid rgba(255,255,255,0.1);
+      color:#ccc;
+      font-size:0.9rem;
+      text-align:center;
+    }
+    .info-box a {
+      color:#58a6ff;
+      text-decoration:none;
+      font-weight:600;
+    }
+    .info-box a:hover { text-decoration:underline; }
+  </style>
+</head>
+<body>
+  <!-- Animated Background -->
+  <canvas id="bg-canvas"></canvas>
+
+  <div class="container">
+    <h1>Login</h1>
+    <p>
+      <span class="badge encrypted">🔒 Encrypted</span>
+      <span class="badge expiry">⏳ 30d retention</span>
+    </p>
+
+    <!-- Login form -->
+    <form method="POST" action="/login">
+      <div class="form-group">
+        <i>👤</i>
+        <input type="text" id="username" name="username" placeholder="Enter username" required>
+      </div>
+
+      <div class="form-group">
+        <i>🔑</i>
+        <input type="password" id="password" name="password" placeholder="Enter password" required>
+      </div>
+
+      <button type="submit" class="btn-primary">Login</button>
+    </form>
+
+    <div class="info-box">
+      <p>Don’t have an account? <a href="/register">Register here</a></p>
+      <p><a href="/guest-upload">Upload as Guest</a> with a one-time password</p>
+    </div>
+  </div>
+
+  <!-- Particle Animation -->
+  <script src="/js/particles.js"></script>
+  <script>
+    particlesJS.load('bg-canvas','/js/particles.json');
+  </script>
+</body>
+</html>

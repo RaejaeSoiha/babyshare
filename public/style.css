@@ -1,0 +1,610 @@
+/* --- Reset --- */
+* { margin:0; padding:0; box-sizing:border-box; }
+
+/* --- Base --- */
+body {
+  font-family:"Segoe UI",sans-serif;
+  background:#f9fafc;
+  color:#333;
+  line-height:1.6;
+  margin: 0;
+  min-height:100vh;
+
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;  /* keep content slightly higher instead of exact middle */
+  padding-top: 40px;
+}
+
+
+
+/* Main card container */
+.container.card {
+  margin: 0 auto;
+  max-width: 400px;
+  width: 100%;
+  text-align: center;
+  background:#fff;
+  padding:35px;
+  border-radius:16px;
+  box-shadow:0 8px 30px rgba(0,0,0,.12), 0 0 30px rgba(0,120,255,.15);
+}
+
+/* --- Dashboard Container (after login) --- */
+.container.dashboard-card {
+    background:#fff;
+    padding:2rem 3rem;
+    border-radius:15px;
+    box-shadow:0 8px 20px rgba(0,0,0,0.4);
+    text-align:center;
+    max-width:1500px;   /* ✅ make dashboard bigger */
+    width:90%;          /* responsive width */
+    margin:3% auto;     /* spacing top/bottom */
+    position:relative;
+    z-index:1;          /* ensures above particles */
+  }
+
+
+  /* === Dashboard Page Override === */
+body.dashboard {
+  background: #000;              /* ✅ black background with particles */
+  display: block;                /* ✅ allow scrolling */
+  overflow-y: auto;              /* ✅ vertical scroll enabled */
+  overflow-x: hidden;
+  min-height: 100vh;
+  padding-top: 40px;
+}
+
+body.dashboard .container.dashboard-card {
+  max-width: 1200px;             /* ✅ make dashboard wider */
+  width: 95%;
+  margin: 2rem auto;
+  padding: 3rem 4rem;
+  border-radius: 18px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+
+
+
+
+/* --- Headings & Paragraphs --- */
+h1,h2,h3 { color:#222; margin-bottom:15px; text-align:center; }
+p { text-align:center; margin:10px 0; }
+
+/* --- Form --- */
+form {
+  background:#fff;
+  padding:20px;
+  border-radius:10px;
+  box-shadow:0 4px 12px rgba(0,0,0,.1);
+  margin:15px 0;
+  width:100%;
+  max-width:420px;
+}
+.form-group {
+  margin-bottom:15px;
+  text-align:left;
+}
+.form-group label {
+  display:block;
+  margin-bottom:6px;
+  font-weight:600;
+  font-size:14px;
+}
+
+input,button {
+  width:100%;
+  padding:12px;
+  margin:6px 0;
+  font-size:15px;
+  border-radius:6px;
+  border:1px solid #ccc;
+}
+input:focus {
+  border-color:#0078ff;
+  outline:none;
+  box-shadow:0 0 5px rgba(0,120,255,.3);
+}
+
+button {
+  background:#0078ff;
+  color:#fff;
+  border:none;
+  font-weight:600;
+  cursor:pointer;
+  transition:background 0.2s ease-in-out;
+}
+button:hover { background:#005fcc; }
+
+/* --- Primary Button --- */
+.btn-primary {
+  background:#0078ff;
+  color:#fff;
+  font-weight:600;
+  border:none;
+}
+.btn-primary:hover { background:#005fcc; }
+
+/* --- Links --- */
+a { color:#0078ff; text-decoration:none; }
+a:hover { text-decoration:underline; }
+
+/* --- Lists --- */
+ul { list-style:none; padding:0; }
+ul li {
+  background:#fff;
+  margin:6px 0;
+  padding:12px;
+  border-radius:6px;
+  box-shadow:0 2px 6px rgba(0,0,0,.08);
+  display:flex;
+  flex-direction:column;
+  justify-content:space-between;
+  align-items:center;
+}
+
+li img {
+  display:block;
+  margin-top:6px;
+  border:1px solid #ddd;
+  border-radius:6px;
+  padding:4px;
+  background:#fff;
+  max-width:120px;
+}
+
+/* --- Tables --- */
+table {
+  width:100%;
+  max-width:500px;
+  margin:20px auto;
+  border-collapse:collapse;
+  background:#fff;
+  box-shadow:0 2px 6px rgba(0,0,0,.08);
+  border-radius:8px;
+  overflow:hidden;
+}
+td,th {
+  padding:12px;
+  border:1px solid #ddd;
+  text-align:left;
+}
+th { background:#f1f3f6; font-weight:600; }
+
+/* --- Badges --- */
+.badge {
+  display:inline-block;
+  padding:4px 10px;
+  border-radius:12px;
+  font-size:12px;
+  font-weight:600;
+  margin-left:6px;
+}
+.badge.encrypted { background:#e0f3ff; color:#0078ff; }
+.badge.expiry { background:#fff3e0; color:#ff9500; }
+
+/* --- Containers & Cards --- */
+.container {
+  max-width:800px;
+  width:100%;
+  margin:auto;
+  text-align:center;
+}
+.card {
+  background:#fff;
+  padding:35px;
+  border-radius:16px;
+  box-shadow:0 8px 30px rgba(0,0,0,.12), 0 0 30px rgba(0,120,255,.15);
+  margin:20px 0;
+  transition: transform 0.2s ease, box-shadow 0.3s ease;
+  position: relative;
+  z-index: 2;
+}
+.card:hover {
+  transform: translateY(-6px);
+  box-shadow:0 12px 40px rgba(0,0,0,.15), 0 0 40px rgba(0,120,255,.2);
+}
+
+/* --- Alerts --- */
+.alert {
+  background:#fff3cd;
+  color:#856404;
+  border:1px solid #ffeeba;
+  padding:12px;
+  border-radius:6px;
+  margin-bottom:15px;
+  font-size:14px;
+  text-align:center;
+  font-weight:600;
+}
+.alert.info {
+  background:#e9f7ff;
+  color:#055160;
+  border:1px solid #b6effb;
+}
+
+/* --- Info / Retry / Errors --- */
+.info-box {
+  background:#f4f6f8;
+  color:#333;
+  border:1px solid #ddd;
+  padding:12px;
+  border-radius:6px;
+  margin-top:15px;
+  font-size:14px;
+}
+.error-msg {
+  color:#d93025;
+  font-weight:600;
+  margin-top:12px;
+}
+.retry-link {
+  margin-top:12px;
+  font-size:14px;
+}
+.retry-link a {
+  color:#0078ff;
+  font-weight:600;
+}
+
+/* --- Actions & Buttons --- */
+.actions { margin: 8px 0; }
+
+.btn-download, .btn-delete {
+  display: inline-block;
+  padding: 8px 14px;
+  margin-right: 6px;
+  font-size: 14px;
+  border-radius: 6px;
+  text-decoration: none;
+  font-weight: 600;
+  transition: background 0.2s ease-in-out;
+}
+.btn-download {
+  background: #0078ff;
+  color: white;
+}
+.btn-download:hover { background: #005fcc; }
+.btn-delete {
+  background: #ff4d4d;
+  color: white;
+}
+.btn-delete:hover { background: #cc0000; }
+
+/* --- QR Code Box --- */
+.qr-box {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-start;
+  align-items: flex-start;
+  gap: 20px;
+  flex-wrap: wrap;
+  text-align: center;
+}
+.qr-box p {
+  width: 100%;
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #333;
+}
+.qr-box img {
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 4px;
+  background: #fff;
+  max-width: 140px;
+}
+
+/* --- Background Canvas --- */
+#bg-canvas {
+  position:fixed;
+  top:0;
+  left:0;
+  width:100%;
+  height:100%;
+  z-index:1;
+}
+
+
+/* Registered Users Table Styling */
+.user-table {
+  width: 100%;
+  max-width: 700px;      /* ✅ give more width so columns breathe */
+  margin: 30px auto;     /* ✅ center horizontally */
+  border-collapse: collapse;
+  background: #fff;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 3px 12px rgba(0,0,0,0.08);
+  font-size: 15px;
+}
+
+.user-table th, .user-table td {
+  padding: 14px 18px;
+  text-align: left;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.user-table th {
+  background: #f1f3f6;
+  font-weight: 600;
+  color: #333;
+}
+
+.user-table tr:hover {
+  background: #f9fbff;   /* ✅ subtle hover highlight */
+}
+
+.user-table a {
+  color: #d9534f;
+  text-decoration: none;
+  font-weight: bold;
+}
+
+.user-table a:hover {
+  text-decoration: underline;
+}
+
+/* Conditional color for file counts */
+.user-table td.files-zero {
+  color: #999;           /* gray if no files */
+  font-style: italic;
+}
+
+.user-table td.files-has {
+  color: #28a745;        /* green if user has files */
+  font-weight: 600;
+}
+
+
+/* === Upload / Guest Success Pages === */
+body.upload-success {
+  margin: 0;
+  padding: 0;
+  font-family: "Segoe UI", sans-serif;
+  background: #1c1c1d;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+}
+
+#bg-canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+}
+
+.upload-success .container {
+  background: #fff;
+  padding: 2rem 3rem;
+  border-radius: 15px;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+  text-align: center;
+  max-width: 500px;
+  width: 90%;
+  position: relative;
+  z-index: 1;
+}
+
+.upload-success ul { list-style: none; padding: 0; }
+.upload-success li { margin-bottom: 20px; }
+.upload-success .actions { margin-top: 10px; }
+
+.upload-success .btn-download,
+.upload-success .btn-delete {
+  display: inline-block;
+  padding: 8px 14px;
+  margin: 5px;
+  font-size: 14px;
+  border-radius: 6px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.upload-success .btn-download { background: #0078ff; color: #fff; }
+.upload-success .btn-download:hover { background: #005fcc; }
+.upload-success .btn-delete { background: #ff4d4d; color: #fff; }
+.upload-success .btn-delete:hover { background: #cc0000; }
+
+
+
+/* === File List Page === */
+body.file-list {
+  margin: 0;
+  padding: 0;
+  font-family: "Segoe UI", sans-serif;
+  background: #000;        /* black background for particles */
+  overflow-x: hidden;
+  overflow-y: auto;        /* allow scrolling if many files */
+  min-height: 100vh;
+}
+
+body.file-list #bg-canvas {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+}
+
+body.file-list .container {
+  position: relative;
+  z-index: 1;
+  background: #fff;
+  max-width: 1000px;
+  margin: 40px auto;
+  padding: 2rem 3rem;
+  border-radius: 15px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+}
+
+
+
+/* === Admin Two-Column Layout === */
+.admin-layout {
+  display: flex;
+  gap: 30px;                /* space between columns */
+  justify-content: space-between;
+  align-items: flex-start;  /* align tops instead of middle */
+  margin-top: 30px;
+}
+
+.admin-layout > .left,
+.admin-layout > .right {
+  flex: 1;                  /* both take equal space */
+  min-width: 320px;         /* prevent collapsing on small screens */
+}
+
+/* Make right side admin card look clean */
+.admin-layout .right {
+  background: #fff;
+  padding: 1.5rem 2rem;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  text-align: left;
+}
+
+
+
+
+
+
+
+/* === Welcome Page (Home) === */
+body.home {
+  background: #0d1117;
+  color: #f5f5f5;
+  font-family: "Segoe UI", sans-serif;
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  overflow: hidden;
+  position: relative;
+}
+
+body.home #bg-canvas {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  z-index: 0;
+}
+
+/* subtle gradient overlay */
+body.home .overlay {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: linear-gradient(
+    135deg,
+    rgba(0, 0, 0, 0.7),   /* much darker base */
+  );
+  z-index: 1;
+}
+
+
+body.home .hero {
+  position: relative;
+  z-index: 2;
+  max-width: 850px;
+  padding: 2rem 3rem;
+}
+
+body.home .hero h1 {
+  font-size: 2.8rem;
+  margin-bottom: 0.5rem;
+  color: #fff;
+}
+
+body.home .tagline {
+  font-size: 1.3rem;
+  margin-bottom: 1.5rem;
+  color: #c9d1d9;
+}
+
+/* badges */
+body.home .badges {
+  margin-bottom: 1.5rem;
+}
+body.home .badge {
+  padding: 6px 12px;
+  border-radius: 12px;
+  font-size: 0.9rem;
+  margin: 0 6px;
+  font-weight: 600;
+}
+body.home .badge.encrypted { background: #1f6feb; color: #fff; }
+body.home .badge.expiry { background: #bb8009; color: #fff; }
+
+/* features grid */
+body.home .features {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 2rem;
+  margin: 2rem 0;
+}
+body.home .feature {
+  background: none;
+  padding: 0.5rem;
+  border-radius: 0;
+  box-shadow: none;
+  transition: transform none;
+  color: #f5f5f5;
+  font-size: 1rem;
+}
+
+body.home .feature:hover span {
+  transform: scale(1.2);
+  transition: transform 0.2s ease;
+}
+
+
+body.home .feature span {
+  display: block;
+  font-size: 2rem;
+  margin-bottom: 0.3rem;
+}
+
+/* call-to-action buttons */
+body.home .cta a {
+  display: inline-block;
+  margin: 0.5rem;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: 0.25s;
+}
+body.home .btn-primary {
+  background: #238636;
+  color: #fff;
+}
+body.home .btn-primary:hover { background: #2ea043; }
+body.home .btn-outline {
+  border: 2px solid #fff;
+  color: #fff;
+}
+body.home .btn-outline:hover {
+  background: #fff;
+  color: #000;
+}
+body.home .btn-accent {
+  background: #1f6feb;
+  color: #fff;
+}
+body.home .btn-accent:hover { background: #388bfd; }
+
+/* footer tip */
+body.home footer {
+  margin-top: 2rem;
+  font-size: 0.9rem;
+  color: #999;
+}

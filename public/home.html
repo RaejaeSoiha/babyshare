@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Baby Share - Secure LAN File Share</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="home">
+  <canvas id="bg-canvas"></canvas>
+  <div class="overlay"></div>
+
+  <div class="hero">
+    <h1>🚀 Baby Share</h1>
+    <p class="tagline">Fast. Private. Encrypted.</p>
+
+    <div class="badges">
+      <span class="badge encrypted">🔒 Encrypted</span>
+      <span class="badge expiry">⏳ 30d retention</span>
+    </div>
+
+    <div class="features">
+      <div class="feature"><span>⚡</span>LAN Speed Performance</div>
+      <div class="feature"><span>🌐</span>Private & Local Only</div>
+      <div class="feature"><span>📂</span>Easy File Management</div>
+    </div>
+
+    <div class="cta">
+      <a href="/login" class="btn-primary">Login</a>
+      <a href="/register" class="btn-outline">Register</a>
+      <a href="/guest-upload" class="btn-accent">Upload as Guest</a>
+    </div>
+
+    <footer>
+      ℹ️ Tip: This is a private LAN-only file sharing service.
+    </footer>
+  </div>
+
+  <script src="/js/particles.js"></script>
+  <script>
+    particlesJS.load('bg-canvas','/js/particles.json');
+  </script>
+</body>
+</html>
