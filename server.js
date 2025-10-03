@@ -1247,20 +1247,19 @@ app.post("/reset-user/:u", requireLogin, requireAdmin, async (req, res) => {
 });
 
 
+
 // ---------------- START SERVER ----------------
 const PORT = process.env.PORT || 3000;
 const MODE = process.env.MODE || "auto";
 
-function startHttp() {
-  const url = `http://localhost:${PORT}`;
+if (process.env.KOYEB || process.env.RENDER || process.env.HEROKU) {
+  // 🚀 Cloud deploy → use provided PORT
   app.listen(PORT, () => {
-    console.log(`✅ Running HTTP at ${url}`);
+    console.log(`Running on cloud at http://0.0.0.0:${PORT}`);
   });
-}
-
-function startHttps() {
+} else if (MODE === "offline") {
+  // Local offline → force HTTPS if certs exist
   try {
-    // For local/offline only → requires self-signed certs in ./certs
     const keyPath = path.join(__dirname, "certs/selfsigned.key");
     const certPath = path.join(__dirname, "certs/selfsigned.crt");
 
@@ -1268,28 +1267,17 @@ function startHttps() {
     const cert = fs.readFileSync(certPath);
 
     https.createServer({ key: pk, cert }, app).listen(443, () =>
-      console.log(`✅ Running HTTPS at https://localhost:443`)
+      console.log(`Local HTTPS running at https://localhost:443`)
     );
   } catch (err) {
-    console.error("⚠️ HTTPS certs missing or invalid, fallback to HTTP:", err.message);
-    startHttp();
+    console.error(" Missing certs, fallback to HTTP:", err.message);
+    app.listen(PORT, () => {
+      console.log(` Local HTTP at http://localhost:${PORT}`);
+    });
   }
-}
-
-// --- Mode Selector ---
-if (process.env.KOYEB || process.env.RENDER || process.env.HEROKU) {
-  // 🚀 Production on cloud → must use provided PORT
-  startHttp();
-} else if (MODE === "offline") {
-  // Explicit offline mode → try HTTPS, fallback to HTTP
-  startHttps();
 } else {
-  // Default: auto → if certs exist, use HTTPS, else HTTP
-  try {
-    fs.accessSync(path.join(__dirname, "certs/selfsigned.key"));
-    fs.accessSync(path.join(__dirname, "certs/selfsigned.crt"));
-    startHttps();
-  } catch {
-    startHttp();
-  }
+  // Default local dev → just use HTTP
+  app.listen(PORT, () => {
+    console.log(`Local dev at http://localhost:${PORT}`);
+  });
 }
