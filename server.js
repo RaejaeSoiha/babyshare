@@ -1247,30 +1247,28 @@ app.post("/reset-user/:u", requireLogin, requireAdmin, async (req, res) => {
 });
 
 
-
 // ---------------- START SERVER ----------------
-const MODE = process.env.MODE || "auto";
 const PORT = process.env.PORT || 3000;
-const SSL_PORT = process.env.SSL_PORT || 443;
+const MODE = process.env.MODE || "auto";
 
 function startHttp() {
-  const url = `http://${localIp}:${PORT}`;
-  http.createServer(app).listen(PORT, () =>
-    console.log(`✅ Running HTTP at ${url}`)
-  );
+  const url = `http://localhost:${PORT}`;
+  app.listen(PORT, () => {
+    console.log(`✅ Running HTTP at ${url}`);
+  });
 }
 
 function startHttps() {
   try {
-    // For production → use real certs from certbot/letsencrypt
+    // For local/offline only → requires self-signed certs in ./certs
     const keyPath = path.join(__dirname, "certs/selfsigned.key");
     const certPath = path.join(__dirname, "certs/selfsigned.crt");
 
     const pk = fs.readFileSync(keyPath);
     const cert = fs.readFileSync(certPath);
 
-    https.createServer({ key: pk, cert }, app).listen(SSL_PORT, () =>
-      console.log(`✅ Running HTTPS at https://localhost:${SSL_PORT}`)
+    https.createServer({ key: pk, cert }, app).listen(443, () =>
+      console.log(`✅ Running HTTPS at https://localhost:443`)
     );
   } catch (err) {
     console.error("⚠️ HTTPS certs missing or invalid, fallback to HTTP:", err.message);
@@ -1279,11 +1277,14 @@ function startHttps() {
 }
 
 // --- Mode Selector ---
-if (MODE === "offline") {
+if (process.env.KOYEB || process.env.RENDER || process.env.HEROKU) {
+  // 🚀 Production on cloud → must use provided PORT
   startHttp();
-} else if (MODE === "online") {
+} else if (MODE === "offline") {
+  // Explicit offline mode → try HTTPS, fallback to HTTP
   startHttps();
-} else if (MODE === "auto") {
+} else {
+  // Default: auto → if certs exist, use HTTPS, else HTTP
   try {
     fs.accessSync(path.join(__dirname, "certs/selfsigned.key"));
     fs.accessSync(path.join(__dirname, "certs/selfsigned.crt"));
@@ -1292,4 +1293,3 @@ if (MODE === "offline") {
     startHttp();
   }
 }
-
