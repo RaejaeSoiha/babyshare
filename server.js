@@ -1250,34 +1250,31 @@ app.post("/reset-user/:u", requireLogin, requireAdmin, async (req, res) => {
 
 // ---------------- START SERVER ----------------
 const PORT = process.env.PORT || 3000;
-const MODE = process.env.MODE || "auto";
 
-if (process.env.KOYEB || process.env.RENDER || process.env.HEROKU) {
-  // 🚀 Cloud deploy → use provided PORT
+// Detect if running on Koyeb or local
+const isCloud = process.env.KOYEB || process.env.KOYEB_APP_NAME; 
+
+if (isCloud) {
+  // ✅ Cloud (Koyeb): HTTP only, SSL handled by Koyeb
   app.listen(PORT, () => {
-    console.log(`Running on cloud at http://0.0.0.0:${PORT}`);
+    console.log(`✅ Cloud server running at http://0.0.0.0:${PORT}`);
   });
-} else if (MODE === "offline") {
-  // Local offline → force HTTPS if certs exist
+} else {
+  // ✅ Local: Try HTTPS first, fallback to HTTP if certs missing
   try {
     const keyPath = path.join(__dirname, "certs/selfsigned.key");
     const certPath = path.join(__dirname, "certs/selfsigned.crt");
 
-    const pk = fs.readFileSync(keyPath);
+    const key = fs.readFileSync(keyPath);
     const cert = fs.readFileSync(certPath);
 
-    https.createServer({ key: pk, cert }, app).listen(443, () =>
-      console.log(`Local HTTPS running at https://localhost:443`)
-    );
+    https.createServer({ key, cert }, app).listen(443, () => {
+      console.log("✅ Local HTTPS running at https://localhost");
+    });
   } catch (err) {
-    console.error(" Missing certs, fallback to HTTP:", err.message);
+    console.error("⚠️ No certs found, starting local HTTP instead:", err.message);
     app.listen(PORT, () => {
-      console.log(` Local HTTP at http://localhost:${PORT}`);
+      console.log(`✅ Local HTTP running at http://localhost:${PORT}`);
     });
   }
-} else {
-  // Default local dev → just use HTTP
-  app.listen(PORT, () => {
-    console.log(`Local dev at http://localhost:${PORT}`);
-  });
 }
