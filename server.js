@@ -1267,36 +1267,40 @@ app.post("/reset-user/:u", requireLogin, requireAdmin, async (req, res) => {
 });
 
 
-
 // ---------------- START SERVER ----------------
 const PORT = process.env.PORT || 3000;
 const NODE_ENV = process.env.NODE_ENV || "development";
-const DOMAIN = process.env.DOMAIN; // set this in Koyeb
+const DOMAIN = process.env.DOMAIN || "";
+const IS_CLOUD = process.env.NODE_ENV === "production" || process.env.KOYEB_APP_NAME;
 
-if (NODE_ENV === "production") {
-  // ✅ Cloud (Koyeb) → plain HTTP only
+if (IS_CLOUD) {
+  // ✅ Cloud deployment: use plain HTTP, Koyeb provides SSL
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`✅ Cloud server running on port ${PORT}`);
-    if (DOMAIN) {
-      console.log(`🌍 Public domain: ${DOMAIN}`);
-    } else {
-      console.log("⚠️ DOMAIN not set, using internal container URL");
-    }
+    console.log(`✅ BabyShare running in cloud mode on port ${PORT}`);
+    if (DOMAIN) console.log(`🌍 Public domain: ${DOMAIN}`);
+    else console.log("⚠️ DOMAIN not set. Using default container URL.");
   });
 } else {
-  // ✅ Local → HTTPS if certs exist, fallback to HTTP
+  // ✅ Local development: try HTTPS first, fallback to HTTP
   try {
     const keyPath = path.join(__dirname, "certs/selfsigned.key");
     const certPath = path.join(__dirname, "certs/selfsigned.crt");
-    const key = fs.readFileSync(keyPath);
-    const cert = fs.readFileSync(certPath);
 
-    https.createServer({ key, cert }, app).listen(443, () => {
-      console.log("✅ Local HTTPS running at https://localhost:443");
-    });
+    if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
+      const key = fs.readFileSync(keyPath);
+      const cert = fs.readFileSync(certPath);
+      https.createServer({ key, cert }, app).listen(443, () => {
+        console.log("✅ Local HTTPS running at https://localhost:443");
+      });
+    } else {
+      console.warn("⚠️ No local SSL certs found, starting HTTP instead...");
+      http.createServer(app).listen(PORT, "0.0.0.0", () => {
+        console.log(`✅ Local HTTP running at http://localhost:${PORT}`);
+      });
+    }
   } catch (err) {
-    console.error("⚠️ No certs found, starting local HTTP instead:", err.message);
-    app.listen(PORT, "0.0.0.0", () => {
+    console.error("⚠️ HTTPS failed, falling back to HTTP:", err.message);
+    http.createServer(app).listen(PORT, "0.0.0.0", () => {
       console.log(`✅ Local HTTP running at http://localhost:${PORT}`);
     });
   }
