@@ -11,24 +11,15 @@ const QRCode = require("qrcode");
 const os = require("os");
 require("dotenv").config();
 
-
-
 const app = express();
 const algorithm = "aes-256-ctr";
 const RAW_KEY = process.env.FILE_KEY || "fallback-secret-key";
 const SECRET_KEY = crypto.createHash("sha256").update(RAW_KEY).digest(); // always 32 bytes
 const IV_LENGTH = 16;
 
-
-
-
-
-
 // ---------------- SECURITY MIDDLEWARE ----------------
 const helmet = require("helmet");
 app.use(helmet());
-
-
 
 // ---------------- FILE PATHS ----------------
 const USERS_FILE = path.join(__dirname, "users.json");
@@ -84,8 +75,20 @@ function getLocalIp() {
   }
   return "localhost";
 }
+
 const localIp = getLocalIp();
 
+// ✅ Moved environment variables to the top (before routes use them)
+const PORT = process.env.PORT || 3000;
+const NODE_ENV = process.env.NODE_ENV || "development";
+const DOMAIN = process.env.DOMAIN || "";
+const IS_CLOUD = NODE_ENV === "production" || process.env.KOYEB_APP_NAME;
+
+// ✅ Helpful startup logs
+console.log("🧭 Mode:", IS_CLOUD ? "Cloud (Koyeb)" : "Local (Offline)");
+console.log("🌍 Domain:", DOMAIN || "Not set");
+
+// ---------------- ENCRYPTION ----------------
 function encryptFile(inputPath, outputPath) {
   return new Promise((resolve, reject) => {
     const iv = crypto.randomBytes(IV_LENGTH);
@@ -108,7 +111,10 @@ function decryptFile(inputPath, res, filename) {
     input.once("readable", () => {
       const iv = input.read(IV_LENGTH);
       const decipher = crypto.createDecipheriv(algorithm, SECRET_KEY, iv);
-      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${filename}"`
+      );
       input.pipe(decipher).pipe(res);
       resolve();
     });
@@ -127,7 +133,6 @@ function cleanup() {
         try {
           fs.unlinkSync(g.filename);
           console.log(`🗑 Deleted expired guest file: ${g.filename}`);
-          // also remove guest folder if empty
           const dir = path.dirname(g.filename);
           if (fs.existsSync(dir) && fs.readdirSync(dir).length === 0) {
             fs.rmdirSync(dir);
@@ -153,7 +158,7 @@ function cleanup() {
             console.error("⚠️ Failed to delete user file:", err.message);
           }
         }
-        return false; // remove expired metadata too
+        return false;
       }
       return true;
     });
@@ -162,23 +167,20 @@ function cleanup() {
   saveShares();
   console.log("🧹 Cleanup done at", new Date().toISOString());
 }
-
-// run once + hourly
 cleanup();
 setInterval(cleanup, 60 * 60 * 1000);
 
-
 // ---------------- MIDDLEWARE ----------------
-//app.use(session({ secret: "file-share-secret", resave: false, saveUninitialized: true }));
-app.use(session({secret: process.env.SESSION_SECRET || "fallback-secret", resave: false, saveUninitialized: true}));
-
-
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET || "fallback-secret",
+    resave: false,
+    saveUninitialized: true,
+  })
+);
 app.use(express.static("public"));
-//app.use(express.urlencoded({ extended: true }));
-
-app.use(express.urlencoded({ extended: true, limit: '1gb' }));
-app.use(express.json({ limit: '1gb' }));
-
+app.use(express.urlencoded({ extended: true, limit: "1gb" }));
+app.use(express.json({ limit: "1gb" }));
 
 function requireLogin(req, res, next) {
   if (req.session.user) return next();
@@ -1267,21 +1269,34 @@ app.post("/reset-user/:u", requireLogin, requireAdmin, async (req, res) => {
 });
 
 
-// ---------------- START SERVER ----------------
-const PORT = process.env.PORT || 3000;
-const NODE_ENV = process.env.NODE_ENV || "development";
-const DOMAIN = process.env.DOMAIN || "";
-const IS_CLOUD = process.env.NODE_ENV === "production" || process.env.KOYEB_APP_NAME;
 
+// ---------------- FALLBACK ROUTE ----------------
+app.use((req, res) => {
+  res.status(404).send(`
+    <html>
+      <body style="background:#111;color:#eee;font-family:sans-serif;text-align:center;padding:50px">
+        <h2>404 - Page Not Found</h2>
+        <p>The page you requested does not exist.</p>
+        <a href="/" style="color:#0af;">Go back Home</a>
+      </body>
+    </html>
+  `);
+});
+
+
+
+
+// ---------------- START SERVER ----------------
 if (IS_CLOUD) {
-  // ✅ Cloud deployment: use plain HTTP, Koyeb provides SSL
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`✅ BabyShare running in cloud mode on port ${PORT}`);
-    if (DOMAIN) console.log(`🌍 Public domain: ${DOMAIN}`);
-    else console.log("⚠️ DOMAIN not set. Using default container URL.");
+  // ✅ Cloud deployment (Koyeb)
+  http.createServer(app).listen(PORT, "0.0.0.0", () => {
+    console.log(`✅ BabyShare cloud server running on port ${PORT}`);
+    console.log(
+      `🌍 Public domain: ${DOMAIN || "auto-assigned by Koyeb (check dashboard)"}`
+    );
   });
 } else {
-  // ✅ Local development: try HTTPS first, fallback to HTTP
+  // ✅ Local: HTTPS if certs exist, otherwise HTTP
   try {
     const keyPath = path.join(__dirname, "certs/selfsigned.key");
     const certPath = path.join(__dirname, "certs/selfsigned.crt");
