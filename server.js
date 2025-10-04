@@ -11,11 +11,17 @@ const QRCode = require("qrcode");
 const os = require("os");
 require("dotenv").config();
 
+
+
 const app = express();
 const algorithm = "aes-256-ctr";
 const RAW_KEY = process.env.FILE_KEY || "fallback-secret-key";
 const SECRET_KEY = crypto.createHash("sha256").update(RAW_KEY).digest(); // always 32 bytes
 const IV_LENGTH = 16;
+
+
+
+
 
 
 // ---------------- SECURITY MIDDLEWARE ----------------
@@ -583,10 +589,14 @@ app.post("/upload", requireLogin, uploadUser.array("files"), async (req, res) =>
 
 
     // use secure-download instead of direct download
-    //const fileUrl = `http://${localIp}:${process.env.PORT || 3000}/secure-download/${req.session.user}/${path.basename(encPath)}`;
-    const BASE_URL = process.env.DOMAIN || `http://${localIp}:${PORT}`;
-    const fileUrl = `${BASE_URL}/secure-download/${req.session.user}/${path.basename(encPath)}`;
-    const qrCode = await QRCode.toDataURL(fileUrl);
+    // Build correct BASE_URL for local vs cloud
+  const BASE_URL = DOMAIN 
+    ? DOMAIN                      // use public domain in production
+    : `http://${localIp}:${PORT}`; // local testing
+
+  const fileUrl = `${BASE_URL}/secure-download/${req.session.user}/${path.basename(encPath)}`;
+  const qrCode = await QRCode.toDataURL(fileUrl);
+
 
 
     links.push(`
@@ -629,6 +639,7 @@ app.post("/upload", requireLogin, uploadUser.array("files"), async (req, res) =>
 });
 
 
+
 // ---------------- FILE LIST ----------------
 app.get("/list", requireLogin, async (req, res) => {
   let html = `
@@ -668,15 +679,11 @@ app.get("/list", requireLogin, async (req, res) => {
       `;
 
       for (let f of fs.readdirSync(path.join(UPLOADS_USERS, u))) {
-        //const fileUrl = `http://${localIp}:${process.env.PORT || 3000}/download/${u}/${f}`;
-        //const qr = await QRCode.toDataURL(fileUrl);
-
-        const fileUrl = `http://${localIp}:${process.env.PORT || 3000}/secure-download/${u}/${f}`;
+        const BASE_URL = DOMAIN ? DOMAIN : `http://${localIp}:${PORT}`;
+        const fileUrl = `${BASE_URL}/secure-download/${u}/${f}`;
         const qr = await QRCode.toDataURL(fileUrl);
 
-
         let fileMeta = (SHARES.users[u] || []).find(item => item.file === f);
-        
         let label = fileMeta?.label || "";
         let original = fileMeta?.original || f;
 
@@ -685,16 +692,15 @@ app.get("/list", requireLogin, async (req, res) => {
             <strong>${label || original}</strong>
             ${label ? `<small>(${original})</small>` : ""}
             <div class="actions">
-              <a class="btn-download" href="/download/${u}/${f}">⬇ Download</a>
+              <a class="btn-download" href="/secure-download/${u}/${f}">⬇ Download</a>
               <a class="btn-delete" href="/delete/${u}/${f}">🗑 Delete</a>
             </div>
             <div class="qr-box">
-            <img src="${qr}" alt="QR for ${f}">
-            ${fileMeta?.hash 
-           ? `<p style="color:red; font-weight:bold; margin-top:5px;">🔒 Password Protected</p>` 
-           : `<p style="color:green; margin-top:5px;">✅ Open Access</p>`}
-          </div>
-
+              <img src="${qr}" alt="QR for ${f}">
+              ${fileMeta?.hash 
+                ? `<p style="color:red; font-weight:bold; margin-top:5px;">🔒 Password Protected</p>` 
+                : `<p style="color:green; margin-top:5px;">✅ Open Access</p>`}
+            </div>
           </li>`;
       }
 
@@ -710,13 +716,9 @@ app.get("/list", requireLogin, async (req, res) => {
       html += "<ul>";
 
       for (let f of fs.readdirSync(userDir)) {
-        //const fileUrl = `http://${localIp}:${process.env.PORT || 3000}/download/${u}/${f}`;
-        //const qr = await QRCode.toDataURL(fileUrl);
-
-        // Not required to login
-        const fileUrl = `http://${localIp}:${process.env.PORT || 3000}/secure-download/${u}/${f}`;
+        const BASE_URL = DOMAIN ? DOMAIN : `http://${localIp}:${PORT}`;
+        const fileUrl = `${BASE_URL}/secure-download/${u}/${f}`;
         const qr = await QRCode.toDataURL(fileUrl);
-
 
         let fileMeta = (SHARES.users[u] || []).find(item => item.file === f);
         let label = fileMeta?.label || "";
@@ -727,16 +729,15 @@ app.get("/list", requireLogin, async (req, res) => {
             <strong>${label || original}</strong>
             ${label ? `<small>(${original})</small>` : ""}
             <div class="actions">
-              <a class="btn-download" href="/download/${u}/${f}">⬇ Download</a>
+              <a class="btn-download" href="/secure-download/${u}/${f}">⬇ Download</a>
               <a class="btn-delete" href="/delete/${u}/${f}">🗑 Delete</a>
             </div>
             <div class="qr-box">
-             <img src="${qr}" alt="QR for ${f}">
+              <img src="${qr}" alt="QR for ${f}">
               ${fileMeta?.hash 
-              ? `<p style="color:red; font-weight:bold; margin-top:5px;">🔒 Password Protected</p>` 
-               : `<p style="color:green; margin-top:5px;">✅ Open Access</p>`}
+                ? `<p style="color:red; font-weight:bold; margin-top:5px;">🔒 Password Protected</p>` 
+                : `<p style="color:green; margin-top:5px;">✅ Open Access</p>`}
             </div>
-
           </li>`;
       }
 
@@ -965,19 +966,32 @@ app.post("/secure-download/:u/:f", express.urlencoded({ extended: true }), async
 });
 
 // ---------------- DOWNLOAD & DELETE ----------------
-app.get("/download/:u/:f", requireLogin, (req, res) => {
-  const fp = path.join(UPLOADS_USERS, req.params.u, req.params.f);
-  if (!fs.existsSync(fp)) return res.send("Not found");
-  decryptFile(fp, res, req.params.f.replace(/\.enc$/, ""));
-});
 
 app.get("/delete/:u/:f", requireLogin, (req, res) => {
-  if (req.session.user !== "admin" && req.session.user !== req.params.u)
-    return res.send(" No access");
-  const fp = path.join(UPLOADS_USERS, req.params.u, req.params.f);
-  if (fs.existsSync(fp)) fs.unlinkSync(fp);
+  const { u, f } = req.params;
+
+  // Only admin or file owner can delete
+  if (req.session.user !== "admin" && req.session.user !== u) {
+    return res.send("❌ No access");
+  }
+
+  const fp = path.join(UPLOADS_USERS, u, f);
+
+  // Delete actual file
+  if (fs.existsSync(fp)) {
+    fs.unlinkSync(fp);
+    console.log(`🗑 Deleted file: ${fp}`);
+  }
+
+  // Delete metadata from SHARES
+  if (SHARES.users[u]) {
+    SHARES.users[u] = SHARES.users[u].filter(item => item.file !== f);
+    saveShares();
+  }
+
   res.redirect("/list");
 });
+
 
 // ---------------- GUEST UPLOAD ----------------
 ensureDir(path.join(__dirname, "uploads/tmp"));
@@ -1022,7 +1036,13 @@ app.post("/guest-upload", uploadGuest.single("file"), async (req, res) => {
   };
   saveShares();
 
-  const link = `http://${localIp}:${process.env.PORT || 3000}/guest-login?token=${token}`;
+  const BASE_URL = DOMAIN 
+  ? DOMAIN 
+  : `http://${localIp}:${PORT}`;
+
+  const link = `${BASE_URL}/guest-login?token=${token}`;
+
+  
   const qrCode = await QRCode.toDataURL(link);
 
   // Show different message if password not required
@@ -1247,20 +1267,23 @@ app.post("/reset-user/:u", requireLogin, requireAdmin, async (req, res) => {
 });
 
 
-
 // ---------------- START SERVER ----------------
 const PORT = process.env.PORT || 3000;
+const NODE_ENV = process.env.NODE_ENV || "development";
+const DOMAIN = process.env.DOMAIN; // set this in Koyeb
 
-// Detect if running on Koyeb or local
-const isCloud = process.env.KOYEB || process.env.KOYEB_APP_NAME; 
-
-if (isCloud) {
-  // ✅ Cloud (Koyeb): HTTP only, SSL handled by Koyeb
-  app.listen(PORT, () => {
-    console.log(`✅ Cloud server running at http://0.0.0.0:${PORT}`);
+if (NODE_ENV === "production") {
+  // ✅ Cloud (Koyeb) → plain HTTP only, SSL is handled by Koyeb proxy
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`✅ Cloud server running on port ${PORT}`);
+    if (DOMAIN) {
+      console.log(`🌍 Public domain: ${DOMAIN}`);
+    } else {
+      console.log("⚠️ DOMAIN not set, using internal container URL");
+    }
   });
 } else {
-  // ✅ Local: Try HTTPS first, fallback to HTTP if certs missing
+  // ✅ Local → try HTTPS first, fallback to HTTP
   try {
     const keyPath = path.join(__dirname, "certs/selfsigned.key");
     const certPath = path.join(__dirname, "certs/selfsigned.crt");
@@ -1268,12 +1291,13 @@ if (isCloud) {
     const key = fs.readFileSync(keyPath);
     const cert = fs.readFileSync(certPath);
 
-    https.createServer({ key, cert }, app).listen(443, () => {
-      console.log("✅ Local HTTPS running at https://localhost");
+    // Use the same dynamic PORT (not hard-coded 443)
+    https.createServer({ key, cert }, app).listen(PORT, "0.0.0.0", () => {
+      console.log(`✅ Local HTTPS running at https://localhost:${PORT}`);
     });
   } catch (err) {
     console.error("⚠️ No certs found, starting local HTTP instead:", err.message);
-    app.listen(PORT, () => {
+    app.listen(PORT, "0.0.0.0", () => {
       console.log(`✅ Local HTTP running at http://localhost:${PORT}`);
     });
   }
