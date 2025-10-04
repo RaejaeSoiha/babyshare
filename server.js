@@ -1244,33 +1244,42 @@ app.post("/reset-user/:u", requireLogin, requireAdmin, async (req, res) => {
 
 });
 
+
+
+
 // ---------------- START SERVER ----------------
-const PORT = process.env.PORT || 3000;
+process.env.NODE_ENV = "production"; // force production mode
 
-// Detect if running on Koyeb or local
-const isCloud = process.env.KOYEB || process.env.KOYEB_APP_NAME; 
+const PORT = process.env.PORT || 8000;
 
+// Detect if running in a cloud environment (Render, Koyeb, etc.)
+const isCloud =
+  process.env.KOYEB_APP_NAME ||
+  process.env.RENDER ||
+  process.env.RENDER_INTERNAL_HOSTNAME ||
+  process.env.NODE_ENV === "production";
+
+// ✅ Cloud: HTTP only (platform handles SSL and proxy)
 if (isCloud) {
-  // ✅ Cloud (Koyeb): HTTP only, SSL handled by Koyeb
-  app.listen(PORT, () => {
-    console.log(`✅ Cloud server running at http://0.0.0.0:${PORT}`);
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`✅ BabyShare running on port ${PORT}`);
+    console.log("🧭 Mode: Cloud-Only (Render/Koyeb)");
+    console.log(`🌍 Accessible via assigned domain`);
   });
 } else {
-  // ✅ Local: Try HTTPS first, fallback to HTTP if certs missing
+  // ✅ Local: Use HTTPS if available, else HTTP
   try {
     const keyPath = path.join(__dirname, "certs/selfsigned.key");
     const certPath = path.join(__dirname, "certs/selfsigned.crt");
-
     const key = fs.readFileSync(keyPath);
     const cert = fs.readFileSync(certPath);
-
     https.createServer({ key, cert }, app).listen(443, () => {
       console.log("✅ Local HTTPS running at https://localhost");
     });
   } catch (err) {
     console.error("⚠️ No certs found, starting local HTTP instead:", err.message);
-    app.listen(PORT, () => {
-      console.log(`✅ Local HTTP running at http://localhost:${PORT}`);
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`✅ Local HTTP running at http://0.0.0.0:${PORT}`);
     });
   }
 }
