@@ -1285,15 +1285,15 @@ app.use((req, res) => {
 
 
 
-
 // ---------------- START SERVER ----------------
+const listenPort = process.env.PORT || 8000;
+
 if (IS_CLOUD) {
-  // ✅ Cloud deployment (Koyeb)
-  http.createServer(app).listen(PORT, "0.0.0.0", () => {
-    console.log(`✅ BabyShare cloud server running on port ${PORT}`);
-    console.log(
-      `🌍 Public domain: ${DOMAIN || "auto-assigned by Koyeb (check dashboard)"}`
-    );
+  // ✅ Cloud (Koyeb): use plain HTTP; Koyeb handles HTTPS proxy
+  app.listen(listenPort, "0.0.0.0", () => {
+    console.log(`✅ BabyShare running on port ${listenPort}`);
+    console.log(`🧭 Mode: Cloud (Koyeb)`);
+    console.log(`🌍 Domain: ${DOMAIN || "auto-assigned by Koyeb"}`);
   });
 } else {
   // ✅ Local: HTTPS if certs exist, otherwise HTTP
@@ -1309,14 +1309,14 @@ if (IS_CLOUD) {
       });
     } else {
       console.warn("⚠️ No local SSL certs found, starting HTTP instead...");
-      http.createServer(app).listen(PORT, "0.0.0.0", () => {
-        console.log(`✅ Local HTTP running at http://localhost:${PORT}`);
+      app.listen(listenPort, "0.0.0.0", () => {
+        console.log(`✅ Local HTTP running at http://localhost:${listenPort}`);
       });
     }
   } catch (err) {
     console.error("⚠️ HTTPS failed, falling back to HTTP:", err.message);
-    http.createServer(app).listen(PORT, "0.0.0.0", () => {
-      console.log(`✅ Local HTTP running at http://localhost:${PORT}`);
+    app.listen(listenPort, "0.0.0.0", () => {
+      console.log(`✅ Local HTTP running at http://localhost:${listenPort}`);
     });
   }
 }
