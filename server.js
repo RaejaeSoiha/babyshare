@@ -1287,37 +1287,36 @@ app.use((req, res) => {
 
 
 
-
 // ---------------- START SERVER ----------------
 const listenPort = process.env.PORT || 8000;
 
-// Run simple HTTP in cloud mode (Koyeb handles HTTPS)
+// ✅ Cloud (Koyeb): Only use HTTP — Koyeb automatically adds HTTPS
 if (IS_CLOUD) {
-  app.listen(listenPort, "0.0.0.0", () => {
+  http.createServer(app).listen(listenPort, "0.0.0.0", () => {
     console.log(`✅ BabyShare running on port ${listenPort}`);
     console.log("🧭 Mode: Cloud (Koyeb)");
     console.log(`🌍 Domain: ${DOMAIN || "auto-assigned by Koyeb"}`);
   });
 } else {
-  // Local development (HTTPS optional)
+  // ✅ Local: Allow HTTPS for testing if certs exist
   try {
     const keyPath = path.join(__dirname, "certs/selfsigned.key");
     const certPath = path.join(__dirname, "certs/selfsigned.crt");
     if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
       const key = fs.readFileSync(keyPath);
       const cert = fs.readFileSync(certPath);
-      https.createServer({ key, cert }, app).listen(443, () => {
+      https.createServer({ key, cert }, app).listen(443, "0.0.0.0", () => {
         console.log("✅ Local HTTPS running at https://localhost:443");
       });
     } else {
-      console.warn("⚠️ No local SSL certs found, starting HTTP instead...");
-      app.listen(listenPort, "0.0.0.0", () => {
+      console.warn("⚠️ No SSL certs found — starting local HTTP instead...");
+      http.createServer(app).listen(listenPort, "0.0.0.0", () => {
         console.log(`✅ Local HTTP running at http://localhost:${listenPort}`);
       });
     }
   } catch (err) {
     console.error("⚠️ HTTPS failed, falling back to HTTP:", err.message);
-    app.listen(listenPort, "0.0.0.0", () => {
+    http.createServer(app).listen(listenPort, "0.0.0.0", () => {
       console.log(`✅ Local HTTP running at http://localhost:${listenPort}`);
     });
   }
