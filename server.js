@@ -1267,13 +1267,14 @@ app.post("/reset-user/:u", requireLogin, requireAdmin, async (req, res) => {
 });
 
 
+
 // ---------------- START SERVER ----------------
 const PORT = process.env.PORT || 3000;
 const NODE_ENV = process.env.NODE_ENV || "development";
 const DOMAIN = process.env.DOMAIN; // set this in Koyeb
 
 if (NODE_ENV === "production") {
-  // ✅ Cloud (Koyeb) → plain HTTP only, SSL is handled by Koyeb proxy
+  // ✅ Cloud (Koyeb) → plain HTTP only
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`✅ Cloud server running on port ${PORT}`);
     if (DOMAIN) {
@@ -1283,17 +1284,15 @@ if (NODE_ENV === "production") {
     }
   });
 } else {
-  // ✅ Local → try HTTPS first, fallback to HTTP
+  // ✅ Local → HTTPS if certs exist, fallback to HTTP
   try {
     const keyPath = path.join(__dirname, "certs/selfsigned.key");
     const certPath = path.join(__dirname, "certs/selfsigned.crt");
-
     const key = fs.readFileSync(keyPath);
     const cert = fs.readFileSync(certPath);
 
-    // Use the same dynamic PORT (not hard-coded 443)
-    https.createServer({ key, cert }, app).listen(PORT, "0.0.0.0", () => {
-      console.log(`✅ Local HTTPS running at https://localhost:${PORT}`);
+    https.createServer({ key, cert }, app).listen(443, () => {
+      console.log("✅ Local HTTPS running at https://localhost:443");
     });
   } catch (err) {
     console.error("⚠️ No certs found, starting local HTTP instead:", err.message);
