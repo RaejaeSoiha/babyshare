@@ -1284,22 +1284,25 @@ app.use((req, res) => {
 });
 
 
+
+
+
+
 // ---------------- START SERVER ----------------
 const listenPort = process.env.PORT || 8000;
 
+// Run simple HTTP in cloud mode (Koyeb handles HTTPS)
 if (IS_CLOUD) {
-  // ✅ Cloud (Koyeb): use plain HTTP; Koyeb handles HTTPS proxy
   app.listen(listenPort, "0.0.0.0", () => {
     console.log(`✅ BabyShare running on port ${listenPort}`);
-    console.log(`🧭 Mode: Cloud (Koyeb)`);
+    console.log("🧭 Mode: Cloud (Koyeb)");
     console.log(`🌍 Domain: ${DOMAIN || "auto-assigned by Koyeb"}`);
   });
 } else {
-  // ✅ Local: HTTPS if certs exist, otherwise HTTP
+  // Local development (HTTPS optional)
   try {
     const keyPath = path.join(__dirname, "certs/selfsigned.key");
     const certPath = path.join(__dirname, "certs/selfsigned.crt");
-
     if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
       const key = fs.readFileSync(keyPath);
       const cert = fs.readFileSync(certPath);
