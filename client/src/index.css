@@ -1,0 +1,11 @@
+/* Global root layout overrides. */
+#root {
+  min-height: 100vh;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
