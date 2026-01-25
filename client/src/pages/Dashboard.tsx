@@ -59,55 +59,92 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="page auth">
-      <div className="auth-card wide">
-        <h1>Welcome, {me.user}</h1>
-        <p className="muted">Upload files and share securely over LAN.</p>
+    <div className="page dashboard">
+      <section className="dashboard-shell">
+        <header className="dashboard-header">
+          <div>
+            <p className="eyebrow">BabyShare Console</p>
+            <h1>
+              Welcome back, <span>{me.user}</span>
+            </h1>
+            <p className="muted">Upload, encrypt, and share across your LAN in seconds.</p>
+          </div>
+          <div className="dashboard-actions">
+            <a className="btn btn-login" href="/files">File Vault</a>
+            <a className="btn btn-register" href="/logout">Logout</a>
+            {me.isAdmin && <a className="btn btn-guest" href="/admin">Admin Panel</a>}
+          </div>
+        </header>
 
-        <form onSubmit={onUpload} encType="multipart/form-data" className="form">
-          <label>
-            Choose files
-            <input type="file" name="files" multiple required />
-          </label>
-          <label>
-            Label (optional)
-            <input name="label" placeholder="e.g. Homework files" />
-          </label>
-          <label>
-            Password (optional)
-            <input type="password" name="password" placeholder="Protect this upload" />
-          </label>
-          <button type="submit" className="btn btn-guest" disabled={loading}>
-            {loading ? "Uploading..." : "Upload"}
-          </button>
-        </form>
+        <div className="dashboard-grid">
+          <div className="dashboard-card upload-panel">
+            <div className="panel-head">
+              <h2>New Share</h2>
+              <span className="pill">Encrypted</span>
+            </div>
+            <p className="muted">
+              Drop multiple files, set an optional label and password, then share the generated links.
+            </p>
 
-        {error && <p className="error">{error}</p>}
+            <form onSubmit={onUpload} encType="multipart/form-data" className="form form-split">
+              <label>
+                Select files
+                <input type="file" name="files" multiple required />
+              </label>
+              <label>
+                Label (optional)
+                <input name="label" placeholder="e.g. Homework files" />
+              </label>
+              <label>
+                Password (optional)
+                <input type="password" name="password" placeholder="Protect this upload" />
+              </label>
+              <button type="submit" className="btn btn-guest" disabled={loading}>
+                {loading ? "Uploading..." : "Create Share"}
+              </button>
+            </form>
+
+            {error && <p className="error">{error}</p>}
+          </div>
+
+          <div className="dashboard-card insights-panel">
+            <h3>Share Rules</h3>
+            <ul className="insight-list">
+              <li>Links expire after 30 days for signed-in uploads.</li>
+              <li>Guest shares expire after 24 hours by default.</li>
+              <li>Use passwords for sensitive files or photos.</li>
+            </ul>
+            <div className="signal-box">
+              <span>LAN Status</span>
+              <strong>Online · Ready</strong>
+            </div>
+          </div>
+        </div>
 
         {result && (
-          <div className="result-card">
-            <h2>Uploaded</h2>
-            {result.links.map((link) => (
-              <div key={link.url} className="file-row">
-                <div>
-                  <strong>{link.name}</strong>
-                  <div className="meta">{link.hash ? "?? Password protected" : "? Open access"}</div>
+          <section className="dashboard-card share-results">
+            <div className="panel-head">
+              <h2>Share Links</h2>
+              <span className="pill alt">Ready</span>
+            </div>
+            <div className="share-grid">
+              {result.links.map((link) => (
+                <div key={link.url} className="share-row">
+                  <div>
+                    <strong>{link.name}</strong>
+                    <div className="meta">{link.hash ? "?? Password protected" : "? Open access"}</div>
+                    <div className="share-link">{link.url}</div>
+                  </div>
+                  <div className="file-actions">
+                    <a className="btn btn-register" href={`${link.url}?action=preview`}>Review</a>
+                    <a className="btn btn-login" href={`${link.url}?action=download`}>Download</a>
+                  </div>
                 </div>
-                <div className="file-actions">
-                  <a className="btn btn-register" href={`${link.url}?action=preview`}>Review</a>
-                  <a className="btn btn-login" href={`${link.url}?action=download`}>Download</a>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          </section>
         )}
-
-        <div className="cta-row">
-          <a className="btn btn-login" href="/files">View My Files</a>
-          <a className="btn btn-register" href="/logout">Logout</a>
-          {me.isAdmin && <a className="btn btn-guest" href="/admin">Admin Panel</a>}
-        </div>
-      </div>
+      </section>
     </div>
   );
 }

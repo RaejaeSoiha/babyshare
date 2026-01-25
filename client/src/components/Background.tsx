@@ -32,7 +32,7 @@ export default function Background() {
     window.addEventListener("resize", resize);
 
     const count = 80;
-    const colors = ["#00cfff", "#ff7b00", "#00ff88", "#c300ff"];
+    const colors = ["#00cfff", "#ff9a4a", "#34d399", "#ffd166"];
     for (let i = 0; i < count; i += 1) {
       particles.push({
         x: Math.random() * width,

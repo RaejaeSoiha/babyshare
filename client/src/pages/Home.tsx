@@ -2,44 +2,94 @@
 export default function Home() {
   return (
     <div className="page home">
-      <main className="hero">
-        <div className="hero-title">
-          <span className="hero-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" role="img">
-              <path
-                d="M14.7 3.2c-2.7.7-5.1 2.2-6.9 4.1L4 11l3 3 3.7-3.7c2-1.9 3.5-4.2 4.3-7.1.2-.8-.6-1.6-1.3-1.3z"
-                fill="currentColor"
-              />
-              <path
-                d="M6.5 17.5l-2.5 3.8 3.8-2.5 1.2-1.2-2.5-2.5-1.2 1.2z"
-                fill="currentColor"
-              />
-              <circle cx="13.5" cy="7.5" r="1.5" fill="#0b0f16" />
-            </svg>
-          </span>
-          <h1>Baby Share</h1>
-        </div>
-        <p className="tagline">Fast. Private. Encrypted.</p>
+      <main className="hero home-hero">
+        <div className="hero-shell">
+          <div className="hero-copy">
+            <div className="hero-title">
+              <span className="hero-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" role="img">
+                  <path
+                    d="M14.7 3.2c-2.7.7-5.1 2.2-6.9 4.1L4 11l3 3 3.7-3.7c2-1.9 3.5-4.2 4.3-7.1.2-.8-.6-1.6-1.3-1.3z"
+                    fill="currentColor"
+                  />
+                  <path
+                    d="M6.5 17.5l-2.5 3.8 3.8-2.5 1.2-1.2-2.5-2.5-1.2 1.2z"
+                    fill="currentColor"
+                  />
+                  <circle cx="13.5" cy="7.5" r="1.5" fill="#0b0f16" />
+                </svg>
+              </span>
+              <h1>Baby Share</h1>
+            </div>
+            <p className="tagline">Fast. Private. Encrypted.</p>
+            <p className="subcopy">
+              Drop files on your LAN, generate a secure link, and let your crew pull it down
+              in seconds. No cloud sync. No public URLs. Just your network.
+            </p>
 
-        <div className="badges">
-          <span className="badge badge-encrypted">
-            <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
-              <path
-                d="M7 10V8a5 5 0 0 1 10 0v2h1a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1h1zm2 0h6V8a3 3 0 0 0-6 0v2z"
-                fill="currentColor"
-              />
-            </svg>
-            Encrypted
-          </span>
-          <span className="badge badge-expiry">
-            <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
-              <path
-                d="M6 2a1 1 0 0 1 1 1v1h10V3a1 1 0 1 1 2 0v1h1a1 1 0 0 1 1 1v3H3V5a1 1 0 0 1 1-1h1V3a1 1 0 0 1 1-1zm-3 8h20v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-9zm9 2v5l4-2.5-4-2.5z"
-                fill="currentColor"
-              />
-            </svg>
-            30d retention
-          </span>
+            <div className="badges">
+              <span className="badge badge-encrypted">
+                <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
+                  <path
+                    d="M7 10V8a5 5 0 0 1 10 0v2h1a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1h1zm2 0h6V8a3 3 0 0 0-6 0v2z"
+                    fill="currentColor"
+                  />
+                </svg>
+                End-to-end encryption
+              </span>
+              <span className="badge badge-expiry">
+                <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
+                  <path
+                    d="M6 2a1 1 0 0 1 1 1v1h10V3a1 1 0 1 1 2 0v1h1a1 1 0 0 1 1 1v3H3V5a1 1 0 0 1 1-1h1V3a1 1 0 0 1 1-1zm-3 8h20v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-9zm9 2v5l4-2.5-4-2.5z"
+                    fill="currentColor"
+                  />
+                </svg>
+                30-day retention
+              </span>
+            </div>
+
+            <div className="cta-row">
+              <a className="btn btn-login" href="/login">Login</a>
+              {/* <a className="btn btn-register" href="/register">Register</a> */}
+              <a className="btn btn-guest" href="/guest-upload">Upload as Guest</a>
+            </div>
+
+            <div className="trust-row">
+              <span>LAN-only by default</span>
+              <span>Zero cloud storage</span>
+              <span>One-time share links</span>
+            </div>
+          </div>
+
+          <div className="hero-visual">
+            <div className="preview-card">
+              <div className="preview-head">
+                <div>
+                  <p className="eyebrow">Secure Drop Zone</p>
+                  <h2>Share in seconds</h2>
+                </div>
+                <span className="status-pill">Live</span>
+              </div>
+              <div className="preview-list">
+                <div>
+                  <p className="preview-label">Uploads</p>
+                  <p className="preview-value">12 files · 3.4 GB</p>
+                </div>
+                <div>
+                  <p className="preview-label">Active link</p>
+                  <p className="preview-value">expires in 29 days</p>
+                </div>
+                <div>
+                  <p className="preview-label">Transfer speed</p>
+                  <p className="preview-value">940 Mbps peak</p>
+                </div>
+              </div>
+              <div className="preview-actions">
+                <button className="btn btn-ghost" type="button">Copy link</button>
+                <button className="btn btn-ghost" type="button">View files</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="feature-grid">
@@ -52,7 +102,7 @@ export default function Home() {
                 />
               </svg>
             </span>
-            <div className="feature-text">LAN Speed Performance</div>
+            <div className="feature-text">LAN speed performance</div>
           </div>
           <div className="feature-card">
             <span className="feature-icon" aria-hidden="true">
@@ -63,7 +113,7 @@ export default function Home() {
                 />
               </svg>
             </span>
-            <div className="feature-text">Private & Local Only</div>
+            <div className="feature-text">Private & local only</div>
           </div>
           <div className="feature-card">
             <span className="feature-icon" aria-hidden="true">
@@ -74,14 +124,8 @@ export default function Home() {
                 />
               </svg>
             </span>
-            <div className="feature-text">Easy File Management</div>
+            <div className="feature-text">Easy file management</div>
           </div>
-        </div>
-
-        <div className="cta-row">
-          <a className="btn btn-login" href="/login">Login</a>
-          <a className="btn btn-register" href="/register">Register</a>
-          <a className="btn btn-guest" href="/guest-upload">Upload as Guest</a>
         </div>
 
         <div className="tip">Tip: This is a private LAN-only file sharing service.</div>
