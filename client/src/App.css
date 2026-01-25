@@ -554,9 +554,7 @@ a {
 
 .dashboard-actions {
   display: flex;
-  column-gap: 24px;
-  row-gap: 16px;
-  align-items: center;
+  gap: 12px;
   flex-wrap: wrap;
 }
 
@@ -565,7 +563,6 @@ a {
   grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
   gap: 20px;
 }
-
 
 .dashboard-card {
   border-radius: 20px;
