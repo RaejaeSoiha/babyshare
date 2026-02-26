@@ -58,3 +58,9 @@ Then open:
 - The backend still serves login/register/guest endpoints.
 - After build, Express serves the React frontend from `client/dist`.
 - If `FORCE_HTTPS=true` and you use a self-signed cert, share links default to HTTP on `HTTP_PORT` to avoid mobile/browser SSL errors. Set `SHARE_USE_HTTPS=true` to force HTTPS links.
+
+## 📸 Preview
+
+<p align="center">
+  <img src="./babyshare.jpg" alt="BabyShare UI" width="900"/>
+</p>
