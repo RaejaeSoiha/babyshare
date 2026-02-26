@@ -1,17 +1,59 @@
-# Free File Share with QR Code
+# 🔐 BabyShare
 
-A LAN/online file sharing app with QR codes, encryption, and guest access
+Secure LAN file sharing platform with QR-based device pairing, encrypted transfers, and temporary access control.
 
-## Stack
-- Backend: Node.js + Express
-- Frontend: React + TypeScript (Vite)
+> Fast. Private. Encrypted.  
+> No cloud sync. No public storage. Just your network.
 
-## Setup
+---
+
+## 📸 Preview
+
+<p align="center">
+  <img src="./babyshare.jpg" alt="BabyShare UI" width="900"/>
+</p>
+
+---
+
+## 🚀 Features
+
+- 🔐 End-to-end encrypted file transfers  
+- 📱 QR-based device pairing  
+- 👤 Guest upload support  
+- 🌐 LAN-only architecture (no cloud dependency)  
+- ⏳ Temporary share links with expiration  
+- 🛡 Secure session & authentication handling  
+- ⚡ High-speed local network transfers  
+
+---
+
+## 🛠 Tech Stack
+
+### Backend
+- Node.js
+- Express
+- Secure session management
+- REST API architecture
+
+### Frontend
+- React
+- TypeScript
+- Vite
+
+### Architecture
+- LAN-based file distribution
+- Encrypted file storage
+- Secure link generation
+- Backend-served production build
+
+---
+
+## ⚙️ Setup
 
 Install backend dependencies:
+
 ```bash
 npm install
-```
 
 Install frontend dependencies:
 ```bash
@@ -59,8 +101,3 @@ Then open:
 - After build, Express serves the React frontend from `client/dist`.
 - If `FORCE_HTTPS=true` and you use a self-signed cert, share links default to HTTP on `HTTP_PORT` to avoid mobile/browser SSL errors. Set `SHARE_USE_HTTPS=true` to force HTTPS links.
 
-## 📸 Preview
-
-<p align="center">
-  <img src="./babyshare.jpg" alt="BabyShare UI" width="900"/>
-</p>
