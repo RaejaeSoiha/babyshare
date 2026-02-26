@@ -1,6 +1,6 @@
 # Free File Share with QR Code
 
-A LAN/online file sharing app with QR codes, encryption, and guest access.
+A LAN/online file sharing app with QR codes, encryption, and guest access
 
 ## Stack
 - Backend: Node.js + Express
