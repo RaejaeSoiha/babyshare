@@ -1,5 +1,6 @@
 // Authenticated dashboard: upload files and show share links.
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { apiFetch, uploadFormData } from "../lib/api";
 
 type Me = { user: string; isAdmin: boolean };
@@ -88,9 +89,9 @@ export default function Dashboard() {
             <p className="muted">Upload, encrypt, and share across your LAN in seconds.</p>
           </div>
           <div className="dashboard-actions">
-            <a className="btn btn-login" href="/files">File Vault</a>
+            <Link className="btn btn-login" to="/files">File Vault</Link>
             <button className="btn btn-register" type="button" onClick={logout}>Logout</button>
-            {me.isAdmin && <a className="btn btn-guest" href="/admin">Admin Panel</a>}
+            {me.isAdmin && <Link className="btn btn-guest" to="/admin">Admin Panel</Link>}
           </div>
         </header>
 
