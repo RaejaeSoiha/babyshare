@@ -1,94 +1,145 @@
-// File storage helpers: encrypt/decrypt streams and content type inference.
+// Encrypted file storage helpers with legacy AES-CTR compatibility.
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const { Writable } = require("stream");
+const { finished } = require("stream/promises");
+const { pipeline } = require("stream/promises");
 
-// AES-256-CTR with a random IV per file.
-const algorithm = "aes-256-ctr";
-const IV_LENGTH = 16;
+const FORMAT_MAGIC = Buffer.from("BBS2");
+const GCM_IV_LENGTH = 12;
+const GCM_TAG_LENGTH = 16;
+const LEGACY_IV_LENGTH = 16;
 
-// Minimal MIME type map for inline previews.
+const PREVIEW_CONTENT_TYPES = {
+  ".pdf": "application/pdf",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".mp4": "video/mp4",
+  ".mp3": "audio/mpeg",
+  ".wav": "audio/wav",
+  ".txt": "text/plain; charset=utf-8",
+  ".md": "text/plain; charset=utf-8",
+  ".json": "text/plain; charset=utf-8",
+};
+
 function getContentType(filename) {
-  const ext = path.extname(filename).toLowerCase();
-  switch (ext) {
-    case ".pdf":
-      return "application/pdf";
-    case ".png":
-      return "image/png";
-    case ".jpg":
-    case ".jpeg":
-      return "image/jpeg";
-    case ".gif":
-      return "image/gif";
-    case ".webp":
-      return "image/webp";
-    case ".svg":
-      return "image/svg+xml";
-    case ".mp4":
-      return "video/mp4";
-    case ".mp3":
-      return "audio/mpeg";
-    case ".wav":
-      return "audio/wav";
-    case ".txt":
-    case ".md":
-    case ".json":
-      return "text/plain; charset=utf-8";
-    default:
-      return "application/octet-stream";
+  return PREVIEW_CONTENT_TYPES[path.extname(filename).toLowerCase()] || "application/octet-stream";
+}
+
+function canPreview(filename) {
+  return Boolean(PREVIEW_CONTENT_TYPES[path.extname(filename).toLowerCase()]);
+}
+
+function ensureDir(dir) {
+  fs.mkdirSync(dir, { recursive: true });
+}
+
+async function encryptFile(inputPath, outputPath, secretKey) {
+  const iv = crypto.randomBytes(GCM_IV_LENGTH);
+  const cipher = crypto.createCipheriv("aes-256-gcm", secretKey, iv);
+  const output = fs.createWriteStream(outputPath, { flags: "wx", mode: 0o600 });
+
+  try {
+    output.write(Buffer.concat([FORMAT_MAGIC, iv]));
+    await pipeline(fs.createReadStream(inputPath), cipher, output, { end: false });
+    output.end(cipher.getAuthTag());
+    await finished(output);
+    await fs.promises.unlink(inputPath);
+  } catch (error) {
+    output.destroy();
+    await fs.promises.unlink(outputPath).catch(() => {});
+    throw error;
   }
 }
 
-// Ensure a directory exists (recursive).
-function ensureDir(dir) {
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+function readFormat(inputPath) {
+  const stat = fs.statSync(inputPath);
+  if (stat.size < LEGACY_IV_LENGTH) throw new Error("Encrypted file is truncated");
+
+  const fd = fs.openSync(inputPath, "r");
+  try {
+    const magic = Buffer.alloc(FORMAT_MAGIC.length);
+    fs.readSync(fd, magic, 0, magic.length, 0);
+    if (magic.equals(FORMAT_MAGIC)) {
+      const headerLength = FORMAT_MAGIC.length + GCM_IV_LENGTH;
+      if (stat.size <= headerLength + GCM_TAG_LENGTH) throw new Error("Encrypted file is truncated");
+      const iv = Buffer.alloc(GCM_IV_LENGTH);
+      const tag = Buffer.alloc(GCM_TAG_LENGTH);
+      fs.readSync(fd, iv, 0, iv.length, FORMAT_MAGIC.length);
+      fs.readSync(fd, tag, 0, tag.length, stat.size - GCM_TAG_LENGTH);
+      return {
+        algorithm: "aes-256-gcm",
+        end: stat.size - GCM_TAG_LENGTH - 1,
+        iv,
+        start: headerLength,
+        tag,
+      };
+    }
+
+    const iv = Buffer.alloc(LEGACY_IV_LENGTH);
+    fs.readSync(fd, iv, 0, iv.length, 0);
+    return { algorithm: "aes-256-ctr", end: stat.size - 1, iv, start: LEGACY_IV_LENGTH };
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
-// Encrypt a file into outputPath, writing IV as the first bytes.
-function encryptFile(inputPath, outputPath, secretKey) {
-  return new Promise((resolve, reject) => {
-    const iv = crypto.randomBytes(IV_LENGTH);
-    const cipher = crypto.createCipheriv(algorithm, secretKey, iv);
-    const input = fs.createReadStream(inputPath);
-    const output = fs.createWriteStream(outputPath);
-    output.write(iv);
-    input.pipe(cipher).pipe(output);
-    output.on("finish", () => {
-      fs.unlinkSync(inputPath);
-      resolve();
-    });
-    output.on("error", reject);
-  });
+function createDecipher(format, secretKey) {
+  const decipher = crypto.createDecipheriv(format.algorithm, secretKey, format.iv);
+  if (format.tag) decipher.setAuthTag(format.tag);
+  return decipher;
 }
 
-// Stream-decrypt an encrypted file to the HTTP response.
-function decryptFile(inputPath, res, filename, secretKey, options = {}) {
-  const disposition = options.disposition || "attachment";
-  const contentType = options.contentType || getContentType(filename);
-  return new Promise((resolve) => {
+function createDecryptedStream(inputPath, format, secretKey) {
+  const input = fs.createReadStream(inputPath, { start: format.start, end: format.end });
+  return { decipher: createDecipher(format, secretKey), input };
+}
+
+async function verifyAuthenticatedFile(inputPath, format, secretKey) {
+  if (!format.tag) return;
+  const discard = new Writable({ write(_chunk, _encoding, callback) { callback(); } });
+  const { input, decipher } = createDecryptedStream(inputPath, format, secretKey);
+  await pipeline(input, decipher, discard);
+}
+
+async function decryptFile(inputPath, res, filename, secretKey, options = {}) {
+  try {
     if (!fs.existsSync(inputPath)) {
       res.status(404).send("File not found");
-      return resolve();
+      return;
     }
-    const input = fs.createReadStream(inputPath);
-    input.on("error", () => {
-      if (!res.headersSent) res.status(404).send("File not found");
-      resolve();
-    });
-    input.once("readable", () => {
-      const iv = input.read(IV_LENGTH);
-      const decipher = crypto.createDecipheriv(algorithm, secretKey, iv);
-      res.setHeader("Content-Disposition", `${disposition}; filename=\"${filename}\"`);
-      res.setHeader("Content-Type", contentType);
-      input.pipe(decipher).pipe(res);
-      resolve();
-    });
-  });
+
+    const format = readFormat(inputPath);
+    await verifyAuthenticatedFile(inputPath, format, secretKey);
+
+    const preview = options.disposition === "inline" && canPreview(filename);
+    res.setHeader("Content-Type", getContentType(filename));
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    if (preview) {
+      res.setHeader("Content-Disposition", "inline");
+    } else {
+      res.attachment(filename);
+    }
+
+    const { input, decipher } = createDecryptedStream(inputPath, format, secretKey);
+    await pipeline(input, decipher, res);
+  } catch {
+    if (!res.headersSent) {
+      res.status(422).send("File cannot be decrypted");
+    } else {
+      res.destroy();
+    }
+  }
 }
 
 module.exports = {
-  ensureDir,
-  encryptFile,
+  canPreview,
   decryptFile,
+  encryptFile,
+  ensureDir,
   getContentType,
 };

@@ -1,7 +1,21 @@
 node_modules/
 uploads/
+sessions/
 .env
+.env.*
+!.env.example
+users.json
+shares.json
+guestFiles.json
+certs/*.key
 *.log
 npm-debug.log
+
+# Build and package artifacts
+client/dist/
+client/package/
+client/caniuse-lite-*.tgz
+client/src-tauri/target/
+src-tauri/target/
 
 Archive.zip

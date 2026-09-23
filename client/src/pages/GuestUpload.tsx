@@ -1,38 +1,43 @@
-// Guest upload form that returns a share link + QR code.
+// Guest upload form that returns a share link and QR code.
 import { useState } from "react";
+import { uploadFormData } from "../lib/api";
 
 type UploadResult = {
-  link: string;
-  qrCode: string;
-  label: string;
   expires: number;
+  label: string;
+  link: string;
   passwordRequired: boolean;
+  qrCode: string;
 };
 
 export default function GuestUpload() {
   const [result, setResult] = useState<UploadResult | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
 
-  // Post FormData to the guest upload endpoint.
-  const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+  const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     setError("");
     setLoading(true);
-    const form = e.currentTarget;
+    setProgress(0);
+    const form = event.currentTarget;
     const data = new FormData(form);
+    const file = data.get("file");
+    if (file instanceof File && file.size > 1024 * 1024 * 1024) {
+      setError("The file must be 1 GB or smaller.");
+      setLoading(false);
+      return;
+    }
 
     try {
-      const res = await fetch("/guest-upload", {
-        method: "POST",
-        body: data,
-      });
-      if (!res.ok) throw new Error("Upload failed");
-      const json = (await res.json()) as UploadResult;
-      setResult(json);
+      const upload = await uploadFormData<UploadResult>("/guest-upload", data, setProgress);
+      setResult(upload);
       form.reset();
-    } catch (err) {
-      setError("Upload failed. Please try again.");
+    } catch (uploadError) {
+      setError(uploadError instanceof Error && uploadError.message === "file_too_large"
+        ? "The file must be 1 GB or smaller."
+        : "Upload failed. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -51,32 +56,34 @@ export default function GuestUpload() {
           </label>
           <label>
             Label (optional)
-            <input name="label" placeholder="e.g. Math homework" />
+            <input name="label" maxLength={120} placeholder="e.g. Math homework" />
           </label>
           <label>
             Password (optional)
-            <input type="password" name="password" placeholder="Protect the file" />
+            <input type="password" name="password" minLength={12} maxLength={128} placeholder="12+ characters to protect the file" />
           </label>
           <button type="submit" className="btn btn-guest" disabled={loading}>
             {loading ? "Uploading..." : "Upload"}
           </button>
         </form>
 
-        {error && <p className="error">{error}</p>}
+        {loading && (
+          <div className="upload-progress" aria-live="polite">
+            <progress max="100" value={progress} />
+            <span>Uploading {progress}%</span>
+          </div>
+        )}
+        {error && <p className="error" role="alert">{error}</p>}
 
         {result && (
           <div className="result-card">
             <h2>File uploaded</h2>
             <p className="muted">Share this link:</p>
-            <a href={result.link} className="link" target="_blank" rel="noreferrer">
-              {result.link}
-            </a>
+            <a href={result.link} className="link" target="_blank" rel="noreferrer">{result.link}</a>
             <div className="qr-block">
-              <img src={result.qrCode} alt="QR" />
+              <img src={result.qrCode} alt="QR code for the shared file" />
             </div>
-            <p className="meta">
-              {result.passwordRequired ? "?? Password required" : "? No password required"}
-            </p>
+            <p className="meta">{result.passwordRequired ? "Password required" : "No password required"}</p>
           </div>
         )}
 

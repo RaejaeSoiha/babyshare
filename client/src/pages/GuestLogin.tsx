@@ -1,27 +1,25 @@
-// Guest access page (password gate and review/download actions).
+// SPA fallback for guest links when the API is hosted separately.
 import { useEffect, useState } from "react";
+import { apiFetch, apiUrl } from "../lib/api";
 
 type GuestInfo = {
+  expiresAt: string;
   label: string;
   original: string;
-  expiresAt: string;
   passwordRequired: boolean;
 };
 
 export default function GuestLogin() {
-  const [token, setToken] = useState("");
+  const token = new URLSearchParams(window.location.search).get("token") || "";
   const [info, setInfo] = useState<GuestInfo | null>(null);
 
-  // Load share metadata for display (if available).
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const t = params.get("token") || "";
-    setToken(t);
-    if (!t) return;
-    fetch(`/api/guest-info/${t}`)
-      .then((res) => res.ok ? res.json() : null)
-      .then((data) => data && setInfo(data));
-  }, []);
+    if (!token) return;
+    apiFetch(`/api/guest-info/${encodeURIComponent(token)}`)
+      .then((response) => response.ok ? response.json() as Promise<GuestInfo> : null)
+      .then((data) => data && setInfo(data))
+      .catch(() => setInfo(null));
+  }, [token]);
 
   if (!token) {
     return (
@@ -35,26 +33,22 @@ export default function GuestLogin() {
   }
 
   const name = info?.label || info?.original || "Shared file";
-
   return (
     <div className="page auth">
       <div className="auth-card">
         <h1>Guest Access</h1>
         <p className="muted">{name}</p>
-
-        {info && !info.passwordRequired && (
+        {info && !info.passwordRequired ? (
           <div className="file-actions">
-            <a className="btn btn-register" href={`/guest-download?token=${token}&action=preview`}>Review</a>
-            <a className="btn btn-login" href={`/guest-download?token=${token}&action=download`}>Download</a>
+            <a className="btn btn-register" href={apiUrl(`/guest-download?token=${encodeURIComponent(token)}&action=preview`)}>Review</a>
+            <a className="btn btn-login" href={apiUrl(`/guest-download?token=${encodeURIComponent(token)}&action=download`)}>Download</a>
           </div>
-        )}
-
-        {(!info || info.passwordRequired) && (
-          <form method="POST" action="/guest-login" className="form">
+        ) : (
+          <form method="POST" action={apiUrl("/guest-login")} className="form">
             <input type="hidden" name="token" value={token} />
             <label>
               Password
-              <input type="password" name="password" placeholder="Enter password" required />
+              <input type="password" name="password" maxLength={128} placeholder="Enter password" required />
             </label>
             <div className="file-actions">
               <button type="submit" name="action" value="preview" className="btn btn-register">Review</button>
@@ -62,7 +56,6 @@ export default function GuestLogin() {
             </div>
           </form>
         )}
-
         <div className="auth-links">
           <a href="/guest-upload">Upload another file</a>
           <a href="/">Back to home</a>

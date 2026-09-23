@@ -1,103 +1,63 @@
-# 🔐 BabyShare
+# BabyShare
 
-Secure LAN file sharing platform with QR-based device pairing, encrypted transfers, and temporary access control.
+Encrypted file sharing with authenticated user accounts, time-limited links,
+optional link passwords, and guest uploads.
 
-> Fast. Private. Encrypted.  
-> No cloud sync. No public storage. Just your network.
-
----
-
-## 📸 Preview
-
-<p align="center">
-  <img src="./babyshare.jpg" alt="BabyShare UI" width="900"/>
-</p>
-
----
-
-## 🚀 Features
-
-- 🔐 End-to-end encrypted file transfers  
-- 📱 QR-based device pairing  
-- 👤 Guest upload support  
-- 🌐 LAN-only architecture (no cloud dependency)  
-- ⏳ Temporary share links with expiration  
-- 🛡 Secure session & authentication handling  
-- ⚡ High-speed local network transfers  
-
----
-
-## 🛠 Tech Stack
-
-### Backend
-- Node.js
-- Express
-- Secure session management
-- REST API architecture
-
-### Frontend
-- React
-- TypeScript
-- Vite
-
-### Architecture
-- LAN-based file distribution
-- Encrypted file storage
-- Secure link generation
-- Backend-served production build
-
----
-
-## ⚙️ Setup
-
-Install backend dependencies:
+## Local development
 
 ```bash
 npm install
-
-Install frontend dependencies:
-```bash
-cd client
-npm install
-cd ..
-```
-
-Create `.env` (optional):
-```env
-PORT=3000
-HTTP_PORT=3001
-FILE_KEY=your-secret-key
-SESSION_SECRET=your-session-secret
-DOMAIN=https://your-domain.com
-FORCE_HTTPS=false
-SHARE_USE_HTTPS=false
-```
-
-## Run (development)
-
-Start backend:
-```bash
-npm run dev
-```
-
-Start frontend dev server (separate terminal):
-```bash
-npm run client:dev
-```
-
-## Build (production)
-
-```bash
+npm --prefix client install
 npm run build
 npm start
 ```
 
-Then open:
-- http://localhost:3000
-- Or the LAN IP shown in the terminal
+For a separate Vite development server, run `npm run client:dev` and configure
+the backend port in `client/vite.config.ts`.
 
-## Notes
-- The backend still serves login/register/guest endpoints.
-- After build, Express serves the React frontend from `client/dist`.
-- If `FORCE_HTTPS=true` and you use a self-signed cert, share links default to HTTP on `HTTP_PORT` to avoid mobile/browser SSL errors. Set `SHARE_USE_HTTPS=true` to force HTTPS links.
+Development can use its local fallback keys for compatibility with an existing
+local data store. They are intentionally rejected when `NODE_ENV=production`.
 
+## Production configuration
+
+Copy `.env.example` to `.env` outside source control and set unique secrets.
+`SESSION_SECRET` and `FILE_KEY` must each be at least 32 characters. `FILE_KEY`
+must be retained for as long as any uploaded files need to be read; rotating it
+without a deliberate re-encryption migration makes existing uploads unreadable.
+
+Set `PUBLIC_BASE_URL` to the external HTTPS URL used by recipients. Place
+BabyShare behind a TLS-terminating reverse proxy, set `TRUST_PROXY=true`, and
+forward `X-Forwarded-Proto`. Do not use the bundled self-signed development
+certificate in production.
+
+The container configuration binds the current `uploads/`, `users.json`, and
+`shares.json` into `/data`; it does not bake them into the image or delete them.
+Back up those paths and the `FILE_KEY` together. Provision a production
+administrator in `users.json` before the first production start.
+
+```bash
+docker compose build
+docker compose up -d
+```
+
+The Compose port is loopback-only (`127.0.0.1:3000`) so the reverse proxy is the
+only public entry point.
+
+## Checks
+
+```bash
+npm test
+npm --prefix client run lint
+npm run build
+npm audit --omit=dev
+```
+
+## Security notes
+
+- New uploads use versioned AES-256-GCM encryption. Existing AES-CTR uploads
+  remain readable for compatibility but should be re-uploaded if integrity
+  verification is required.
+- File previews are limited to a conservative set of media, PDF, and plain-text
+  types. Other files download as attachments.
+- Password and login attempts are rate-limited in process. Use a shared edge
+  limiter when running more than one application instance.

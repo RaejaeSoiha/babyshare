@@ -57,7 +57,7 @@ export default function Home() {
             <div className="trust-row">
               <span>LAN-only by default</span>
               <span>Zero cloud storage</span>
-              <span>One-time share links</span>
+              <span>Time-limited share links</span>
             </div>
           </div>
 
@@ -85,8 +85,7 @@ export default function Home() {
                 </div>
               </div>
               <div className="preview-actions">
-                <button className="btn btn-ghost" type="button">Copy link</button>
-                <button className="btn btn-ghost" type="button">View files</button>
+                <a className="btn btn-ghost" href="/login">Open file vault</a>
               </div>
             </div>
           </div>

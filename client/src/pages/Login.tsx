@@ -1,18 +1,19 @@
 // Login form page.
+import { apiUrl } from "../lib/api";
 export default function Login() {
   return (
     <div className="page auth">
       <div className="auth-card">
         <h1>Welcome Back</h1>
         <p className="muted">Sign in to manage your files.</p>
-        <form method="POST" action="/login" className="form">
+        <form method="POST" action={apiUrl("/login")} className="form">
           <label>
             Username
-            <input name="username" placeholder="Enter username" required />
+            <input name="username" minLength={3} maxLength={32} placeholder="Enter username" required />
           </label>
           <label>
             Password
-            <input type="password" name="password" placeholder="Enter password" required />
+            <input type="password" name="password" maxLength={128} placeholder="Enter password" required />
           </label>
           <button type="submit" className="btn btn-login">Login</button>
         </form>

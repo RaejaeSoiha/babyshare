@@ -1,9 +1,7 @@
-@import url("https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap");
-
 /* Theme tokens and layout utilities for the SPA. */
 :root {
   color-scheme: light;
-  font-family: "Space Grotesk", "Trebuchet MS", "Segoe UI", "Segoe UI Emoji", sans-serif;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   --ink: #0b0f16;
   --ink-soft: #141a24;
   --mist: #c8d3ea;
@@ -107,7 +105,7 @@ a {
 }
 
 .hero h1 {
-  font-family: "Fraunces", "Times New Roman", serif;
+  font-family: Georgia, "Times New Roman", serif;
   font-size: clamp(2.3rem, 3vw, 3.3rem);
   margin: 0;
   letter-spacing: 0.4px;
@@ -480,6 +478,20 @@ a {
 
 .error {
   color: #ff6b6b;
+}
+
+.upload-progress {
+  align-items: center;
+  color: #c8d3ea;
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.upload-progress progress {
+  accent-color: #34d399;
+  flex: 1;
+  height: 10px;
 }
 
 .result-card {

@@ -1,43 +1,56 @@
 // JSON-backed storage for users and share metadata.
 const fs = require("fs");
 const path = require("path");
-const { ROOT_DIR } = require("../config");
+const { DATA_DIR, IS_PRODUCTION } = require("../config");
 
-// File paths for persisted state.
-const USERS_FILE = path.join(ROOT_DIR, "users.json");
-const SHARES_FILE = path.join(ROOT_DIR, "shares.json");
+const USERS_FILE = path.join(DATA_DIR, "users.json");
+const SHARES_FILE = path.join(DATA_DIR, "shares.json");
 
-// Read users from disk (fallback to default admin).
+function readJson(file, fallback, description) {
+  if (!fs.existsSync(file)) {
+    if (IS_PRODUCTION && description === "user store") {
+      throw new Error("Production user store is missing. Bootstrap an administrator before startup.");
+    }
+    return fallback;
+  }
+
+  try {
+    const value = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid shape");
+    return value;
+  } catch {
+    throw new Error(`Unable to read ${description}; restore a valid backup before startup.`);
+  }
+}
+
+function writeJson(file, value) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const temporary = `${file}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  fs.renameSync(temporary, file);
+}
+
 function loadUsers() {
-  if (fs.existsSync(USERS_FILE)) {
-    return JSON.parse(fs.readFileSync(USERS_FILE));
-  }
-  return { admin: "admin123" };
+  return readJson(USERS_FILE, { admin: "admin123" }, "user store");
 }
 
-// Read shares from disk (empty on first run).
 function loadShares() {
-  if (fs.existsSync(SHARES_FILE)) {
-    return JSON.parse(fs.readFileSync(SHARES_FILE));
-  }
-  return { users: {}, guests: {} };
+  return readJson(SHARES_FILE, { users: {}, guests: {} }, "share store");
 }
 
-// Persist users to disk.
 function saveUsers(users) {
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+  writeJson(USERS_FILE, users);
 }
 
-// Persist shares to disk.
 function saveShares(shares) {
-  fs.writeFileSync(SHARES_FILE, JSON.stringify(shares, null, 2));
+  writeJson(SHARES_FILE, shares);
 }
 
 module.exports = {
-  USERS_FILE,
   SHARES_FILE,
-  loadUsers,
+  USERS_FILE,
   loadShares,
-  saveUsers,
+  loadUsers,
   saveShares,
+  saveUsers,
 };

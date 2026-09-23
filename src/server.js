@@ -1,6 +1,7 @@
 // Main Express entrypoint: app setup, shared state, routes, and server startup.
 const express = require("express");
 const session = require("express-session");
+const FileStoreFactory = require("session-file-store");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
@@ -9,11 +10,31 @@ const http = require("http");
 const https = require("https");
 require("dotenv").config();
 
-const { PORT, HTTP_PORT, CERT_KEY_PATH, CERT_CRT_PATH, HTTPS_ENABLED, DIST_DIR, HAS_DIST, ROOT_DIR } = require("./config");
+const {
+  CERT_CRT_PATH,
+  CERT_KEY_PATH,
+  DATA_DIR,
+  DIST_DIR,
+  FRONTEND_BASE_URL,
+  HAS_DIST,
+  HTTPS_ENABLED,
+  HTTP_PORT,
+  IS_PRODUCTION,
+  PORT,
+  PUBLIC_BASE_URL,
+  SESSION_MAX_AGE_MS,
+  validateRuntimeConfig,
+} = require("./config");
 const { loadUsers, loadShares, saveUsers, saveShares } = require("./data/store");
-const { ensureDir, encryptFile, decryptFile } = require("./services/storage");
-const { renderError, renderSuccess, renderAccessOptions } = require("./utils/html");
-const { getPreferredLanIp, getBaseUrl, getShareBaseUrl } = require("./utils/network");
+const { decryptFile, encryptFile, ensureDir } = require("./services/storage");
+const { renderError, renderGuestAccess, renderPasswordPrompt } = require("./utils/html");
+const { getPreferredLanIp, getShareBaseUrl } = require("./utils/network");
+const {
+  createRateLimiter,
+  hasOwn,
+  isExpired,
+  resolveWithin,
+} = require("./utils/security");
 
 const registerAuthRoutes = require("./routes/auth");
 const registerFileRoutes = require("./routes/files");
@@ -21,226 +42,307 @@ const registerGuestRoutes = require("./routes/guest");
 const registerAdminRoutes = require("./routes/admin");
 const registerApiRoutes = require("./routes/api");
 
-const app = express();
+const ONE_HOUR_MS = 60 * 60 * 1000;
+const FileStore = FileStoreFactory(session);
 
-// Security headers (LAN-safe). We avoid strict policies that break local/HTTP access.
-const helmet = require("helmet");
-app.use(
-  helmet({
-    contentSecurityPolicy: false,
-    crossOriginOpenerPolicy: false,
-    originAgentCluster: false,
-    hsts: false,
-  })
-);
-app.use((req, res, next) => {
-  res.removeHeader("Cross-Origin-Opener-Policy");
-  res.removeHeader("Origin-Agent-Cluster");
-  res.removeHeader("Strict-Transport-Security");
-  next();
-});
-
-// Body parsing for form posts and JSON APIs.
-app.use(express.urlencoded({ extended: true, limit: "1gb" }));
-app.use(express.json({ limit: "1gb" }));
-
-// Session cookie for login state.
-app.use(
-  session({
-    secret: process.env.SESSION_SECRET || "fallback-secret",
-    resave: false,
-    saveUninitialized: true,
-  })
-);
-
-if (HAS_DIST) {
-  app.use(express.static(DIST_DIR));
+function wantsJson(req) {
+  return req.path.startsWith("/api/") || req.path === "/upload" || req.path === "/guest-upload";
 }
 
-// Data stores (users + share metadata).
-const USERS = loadUsers();
-const SHARES = loadShares();
-if (!SHARES.users) SHARES.users = {};
-if (!SHARES.guests) SHARES.guests = {};
-
-// Auto-migrate plaintext passwords to bcrypt hashes on startup.
-(async () => {
-  let changed = false;
-  for (const [user, pass] of Object.entries(USERS)) {
-    if (!pass.startsWith("$2")) {
-      USERS[user] = await bcrypt.hash(pass, 10);
-      changed = true;
-    }
-  }
-  if (changed) saveUsers(USERS);
-})();
-
-// Derive a fixed-length key for symmetric encryption.
-const RAW_KEY = process.env.FILE_KEY || "fallback-secret-key";
-const SECRET_KEY = crypto.createHash("sha256").update(RAW_KEY).digest();
-
-// Paths used across modules.
-const UPLOADS_USERS = path.join(ROOT_DIR, "uploads", "users");
-const UPLOADS_GUESTS = path.join(ROOT_DIR, "uploads", "guests");
-ensureDir(UPLOADS_USERS);
-ensureDir(UPLOADS_GUESTS);
-ensureDir(path.join(ROOT_DIR, "uploads", "tmp"));
-
-// Simple auth guards for route protection.
-function requireLogin(req, res, next) {
-  if (req.session.user) return next();
-  res.redirect("/login");
-}
-
-function requireAdmin(req, res, next) {
-  if (req.session.user === "admin") return next();
-  res.status(403).send("Admins only");
-}
-
-function mapUserFiles(username) {
-  const entries = SHARES.users[username] || [];
-  return entries
-    .filter((item) => fs.existsSync(path.join(UPLOADS_USERS, username, item.file)))
-    .map((item) => ({
-      file: item.file,
-      original: item.original,
-      label: item.label || "",
-      uploaded: item.uploaded || null,
-      expires: item.expires || null,
-      passwordProtected: Boolean(item.hash),
-    }));
-}
-
-// Cleanup expired shares and orphaned files on an interval.
-function cleanup() {
-  const now = Date.now();
-
-  Object.keys(SHARES.guests || {}).forEach((t) => {
-    const g = SHARES.guests[t];
-    if (!g || g.expires < now) {
-      if (g && fs.existsSync(g.filename)) {
-        try {
-          fs.unlinkSync(g.filename);
-          const dir = path.dirname(g.filename);
-          if (fs.existsSync(dir) && fs.readdirSync(dir).length === 0) {
-            fs.rmdirSync(dir);
-          }
-        } catch {
-          // ignore
-        }
+function createSameOriginGuard() {
+  const configuredOrigins = [FRONTEND_BASE_URL, PUBLIC_BASE_URL]
+    .filter(Boolean)
+    .flatMap((value) => {
+      try {
+        return [new URL(value).origin];
+      } catch {
+        return [];
       }
-      delete SHARES.guests[t];
-    }
-  });
-
-  Object.keys(SHARES.users || {}).forEach((u) => {
-    SHARES.users[u] = (SHARES.users[u] || []).filter((file) => {
-      if (file.expires && file.expires < now) {
-        const fp = path.join(UPLOADS_USERS, u, file.file);
-        if (fs.existsSync(fp)) {
-          try {
-            fs.unlinkSync(fp);
-          } catch {
-            // ignore
-          }
-        }
-        return false;
-      }
-      return true;
     });
-  });
 
-  saveShares(SHARES);
-  console.log("?? Cleanup done at", new Date().toISOString());
-}
-cleanup();
-setInterval(cleanup, 60 * 60 * 1000);
+  return (req, res, next) => {
+    if (["GET", "HEAD", "OPTIONS"].includes(req.method)) return next();
 
-// Routes (API + pages).
-app.get("/", (req, res) => {
-  if (req.session.user) return res.redirect("/dashboard");
-  if (HAS_DIST) return res.sendFile(path.join(DIST_DIR, "index.html"));
-  return res.status(500).send("Frontend build missing. Run: npm run build");
-});
+    const source = req.get("origin") || req.get("referer");
+    if (!source) return res.status(403).json({ error: "origin_required" });
 
-registerApiRoutes(app, { USERS, SHARES, requireLogin, mapUserFiles });
-registerAuthRoutes(app, {
-  HAS_DIST,
-  DIST_DIR,
-  ROOT_DIR,
-  USERS,
-  SHARES,
-  saveUsers,
-  saveShares,
-  ensureDir,
-  UPLOADS_USERS,
-});
-registerFileRoutes(app, {
-  SECRET_KEY,
-  UPLOADS_USERS,
-  USERS,
-  SHARES,
-  saveShares,
-  ensureDir,
-  encryptFile,
-  decryptFile,
-  renderAccessOptions,
-  requireLogin,
-  requireAdmin,
-  mapUserFiles,
-  getShareBaseUrl,
-});
-registerGuestRoutes(app, {
-  SECRET_KEY,
-  SHARES,
-  saveShares,
-  ensureDir,
-  encryptFile,
-  decryptFile,
-  UPLOADS_GUESTS,
-  getShareBaseUrl,
-});
-registerAdminRoutes(app, {
-  USERS,
-  SHARES,
-  saveUsers,
-  saveShares,
-  ensureDir,
-  UPLOADS_USERS,
-  requireLogin,
-  requireAdmin,
-  HAS_DIST,
-  DIST_DIR,
-});
-
-if (HAS_DIST) {
-  // SPA fallback: allow React Router to handle deep links.
-  app.get("*", (req, res) => {
-    res.sendFile(path.join(DIST_DIR, "index.html"));
-  });
-}
-
-// Start servers: HTTPS if enabled, always expose HTTP for share links when configured.
-if (HTTPS_ENABLED) {
-  const key = fs.readFileSync(CERT_KEY_PATH);
-  const cert = fs.readFileSync(CERT_CRT_PATH);
-  https.createServer({ key, cert }, app).listen(PORT, "0.0.0.0", () => {
-    console.log(`BabyShare running at https://localhost:${PORT}`);
-    console.log(`LAN access (HTTPS): https://${getPreferredLanIp()}:${PORT}`);
-    console.log(`LAN access (HTTP): http://${getPreferredLanIp()}:${HTTP_PORT}`);
-  });
-  if (HTTP_PORT !== PORT) {
-    http.createServer(app).listen(HTTP_PORT, "0.0.0.0");
-  }
-} else {
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`BabyShare running at http://localhost:${PORT}`);
-    console.log(`LAN access: http://${getPreferredLanIp()}:${PORT}`);
-    if (HTTP_PORT !== PORT) {
-      console.log(`Share links: http://${getPreferredLanIp()}:${HTTP_PORT}`);
+    let sourceOrigin;
+    try {
+      sourceOrigin = new URL(source).origin;
+    } catch {
+      return res.status(403).json({ error: "invalid_origin" });
     }
-  });
-  if (HTTP_PORT !== PORT) {
-    http.createServer(app).listen(HTTP_PORT, "0.0.0.0");
-  }
+
+    const scheme = req.secure ? "https" : "http";
+    const requestOrigin = `${scheme}://${req.get("host")}`;
+    if (sourceOrigin === requestOrigin || configuredOrigins.includes(sourceOrigin)) return next();
+    return res.status(403).json({ error: "cross_origin_request" });
+  };
 }
+
+function createApp() {
+  validateRuntimeConfig();
+  const app = express();
+  const trustProxy = process.env.TRUST_PROXY === "true";
+  if (trustProxy) app.set("trust proxy", 1);
+
+  app.disable("x-powered-by");
+  const helmet = require("helmet");
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          baseUri: ["'self'"],
+          connectSrc: ["'self'"],
+          fontSrc: ["'self'", "data:"],
+          formAction: ["'self'"],
+          frameAncestors: ["'self'"],
+          imgSrc: ["'self'", "data:", "blob:"],
+          mediaSrc: ["'self'", "blob:"],
+          objectSrc: ["'none'"],
+          scriptSrc: ["'self'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+        },
+      },
+      hsts: IS_PRODUCTION ? { maxAge: 31536000, includeSubDomains: true } : false,
+      referrerPolicy: { policy: "same-origin" },
+    })
+  );
+
+  app.use(express.urlencoded({ extended: false, limit: "64kb" }));
+  app.use(express.json({ limit: "64kb" }));
+
+  const sessionDirectory = path.join(DATA_DIR, "sessions");
+  ensureDir(sessionDirectory);
+  app.use(
+    session({
+      cookie: {
+        httpOnly: true,
+        maxAge: SESSION_MAX_AGE_MS,
+        sameSite: "lax",
+        secure: HTTPS_ENABLED || (IS_PRODUCTION && trustProxy),
+      },
+      name: "babyshare.sid",
+      resave: false,
+      saveUninitialized: false,
+      secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex"),
+      store: new FileStore({ logFn: () => {}, path: sessionDirectory, retries: 0, ttl: Math.ceil(SESSION_MAX_AGE_MS / 1000) }),
+    })
+  );
+
+  const USERS = loadUsers();
+  const SHARES = loadShares();
+  if (!SHARES.users || typeof SHARES.users !== "object") SHARES.users = {};
+  if (!SHARES.guests || typeof SHARES.guests !== "object") SHARES.guests = {};
+
+  // Existing plaintext records are upgraded before requests can authenticate.
+  for (const [username, password] of Object.entries(USERS)) {
+    if (typeof password !== "string") throw new Error(`User store contains an invalid password record for ${username}`);
+  }
+  const plainTextUsers = Object.entries(USERS).filter(([, password]) => !password.startsWith("$2"));
+  if (plainTextUsers.length > 0) {
+    for (const [username, password] of plainTextUsers) {
+      USERS[username] = bcrypt.hashSync(password, 12);
+    }
+    saveUsers(USERS);
+  }
+
+  const rawKey = process.env.FILE_KEY || "development-only-file-key";
+  const SECRET_KEY = crypto.createHash("sha256").update(rawKey).digest();
+  const UPLOADS_USERS = path.join(DATA_DIR, "uploads", "users");
+  const UPLOADS_GUESTS = path.join(DATA_DIR, "uploads", "guests");
+  const UPLOADS_TMP = path.join(DATA_DIR, "uploads", "tmp");
+  ensureDir(UPLOADS_USERS);
+  ensureDir(UPLOADS_GUESTS);
+  ensureDir(UPLOADS_TMP);
+
+  function appRedirect(res, redirectPath) {
+    const base = FRONTEND_BASE_URL.replace(/\/+$/, "");
+    return res.redirect(base ? `${base}${redirectPath}` : redirectPath);
+  }
+
+  function requireLogin(req, res, next) {
+    if (req.session.user && hasOwn(USERS, req.session.user)) return next();
+    if (wantsJson(req)) return res.status(401).json({ error: "unauthorized" });
+    return appRedirect(res, "/login");
+  }
+
+  function requireAdmin(req, res, next) {
+    if (req.session.user === "admin") return next();
+    return res.status(403).json({ error: "forbidden" });
+  }
+
+  function getUserFileMeta(username, filename) {
+    if (!hasOwn(USERS, username) || typeof filename !== "string") return null;
+    const entries = Array.isArray(SHARES.users[username]) ? SHARES.users[username] : [];
+    return entries.find((item) => item && item.file === filename) || null;
+  }
+
+  function getUserFilePath(username, filename) {
+    if (!getUserFileMeta(username, filename)) return null;
+    return resolveWithin(UPLOADS_USERS, username, filename);
+  }
+
+  function mapUserFiles(username) {
+    const entries = Array.isArray(SHARES.users[username]) ? SHARES.users[username] : [];
+    return entries
+      .filter((item) => item && !isExpired(item) && getUserFilePath(username, item.file) && fs.existsSync(getUserFilePath(username, item.file)))
+      .map((item) => ({
+        expires: item.expires || null,
+        file: item.file,
+        label: item.label || "",
+        original: item.original,
+        passwordProtected: Boolean(item.hash),
+        uploaded: item.uploaded || null,
+      }));
+  }
+
+  function removeUserShare(username, filename) {
+    const entries = Array.isArray(SHARES.users[username]) ? SHARES.users[username] : [];
+    SHARES.users[username] = entries.filter((item) => item && item.file !== filename);
+    saveShares(SHARES);
+  }
+
+  function cleanup() {
+    const now = Date.now();
+    let changed = false;
+
+    for (const [token, share] of Object.entries(SHARES.guests)) {
+      const filePath = share && resolveWithin(UPLOADS_GUESTS, share.filename || "");
+      if (!share || isExpired(share, now) || !filePath || !fs.existsSync(filePath)) {
+        if (filePath && fs.existsSync(filePath)) {
+          try {
+            fs.unlinkSync(filePath);
+            const directory = path.dirname(filePath);
+            if (directory !== UPLOADS_GUESTS && fs.existsSync(directory) && fs.readdirSync(directory).length === 0) {
+              fs.rmdirSync(directory);
+            }
+          } catch {
+            // A future cleanup pass can retry a transient filesystem failure.
+          }
+        }
+        delete SHARES.guests[token];
+        changed = true;
+      }
+    }
+
+    for (const [username, entries] of Object.entries(SHARES.users)) {
+      if (!Array.isArray(entries)) {
+        SHARES.users[username] = [];
+        changed = true;
+        continue;
+      }
+      const active = entries.filter((file) => {
+        if (!file || isExpired(file, now)) {
+          const filePath = file && resolveWithin(UPLOADS_USERS, username, file.file || "");
+          if (filePath && fs.existsSync(filePath)) {
+            try {
+              fs.unlinkSync(filePath);
+            } catch {
+              return true;
+            }
+          }
+          changed = true;
+          return false;
+        }
+        return true;
+      });
+      SHARES.users[username] = active;
+    }
+
+    if (changed) saveShares(SHARES);
+  }
+
+  cleanup();
+  const cleanupTimer = setInterval(cleanup, ONE_HOUR_MS);
+  cleanupTimer.unref();
+
+  const loginLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 10 });
+  const uploadLimiter = createRateLimiter({ windowMs: 60 * 60 * 1000, max: 30 });
+  const passwordLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 10 });
+
+  if (HAS_DIST) app.use(express.static(DIST_DIR, { index: false, maxAge: IS_PRODUCTION ? "1h" : 0 }));
+
+  app.get("/healthz", (_req, res) => res.status(200).json({ status: "ok" }));
+  app.get("/", (req, res) => {
+    if (req.session.user) return res.redirect("/dashboard");
+    if (HAS_DIST) return res.sendFile(path.join(DIST_DIR, "index.html"));
+    return res.status(500).send("Frontend build missing. Run: npm run build");
+  });
+
+  const sharedDependencies = {
+    DIST_DIR,
+    FRONTEND_BASE_URL,
+    HAS_DIST,
+    SECRET_KEY,
+    SHARES,
+    UPLOADS_GUESTS,
+    UPLOADS_TMP,
+    UPLOADS_USERS,
+    USERS,
+    appRedirect,
+    decryptFile,
+    encryptFile,
+    getShareBaseUrl,
+    getUserFileMeta,
+    getUserFilePath,
+    isExpired,
+    loginLimiter,
+    mapUserFiles,
+    passwordLimiter,
+    removeUserShare,
+    renderError,
+    renderGuestAccess,
+    renderPasswordPrompt,
+    requireAdmin,
+    requireLogin,
+    resolveWithin,
+    saveShares,
+    saveUsers,
+    uploadLimiter,
+  };
+
+  app.use(createSameOriginGuard());
+  registerApiRoutes(app, sharedDependencies);
+  registerAuthRoutes(app, sharedDependencies);
+  registerFileRoutes(app, sharedDependencies);
+  registerGuestRoutes(app, sharedDependencies);
+  registerAdminRoutes(app, sharedDependencies);
+
+  app.use((error, req, res, _next) => {
+    const multerError = error && error.name === "MulterError";
+    const status = multerError && error.code === "LIMIT_FILE_SIZE" ? 413 : 400;
+    const payload = multerError && error.code === "LIMIT_FILE_SIZE" ? "file_too_large" : "invalid_request";
+    if (res.headersSent) return;
+    if (wantsJson(req)) return res.status(status).json({ error: payload });
+    return res.status(status).send(payload);
+  });
+
+  if (HAS_DIST) {
+    app.get(/.*/, (_req, res) => res.sendFile(path.join(DIST_DIR, "index.html")));
+  }
+
+  return app;
+}
+
+function startServers() {
+  const app = createApp();
+  if (HTTPS_ENABLED) {
+    const key = fs.readFileSync(CERT_KEY_PATH);
+    const cert = fs.readFileSync(CERT_CRT_PATH);
+    https.createServer({ cert, key }, app).listen(PORT, "0.0.0.0", () => {
+      console.info(`BabyShare listening on https://localhost:${PORT}`);
+      console.info(`Configured share base: ${getShareBaseUrl()}`);
+    });
+    if (HTTP_PORT !== PORT) http.createServer(app).listen(HTTP_PORT, "0.0.0.0");
+    return;
+  }
+
+  app.listen(PORT, "0.0.0.0", () => {
+    console.info(`BabyShare listening on http://localhost:${PORT}`);
+    console.info(`LAN address: http://${getPreferredLanIp()}:${PORT}`);
+  });
+}
+
+module.exports = { createApp, startServers };

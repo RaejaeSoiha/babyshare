@@ -1,90 +1,94 @@
-// Auth routes: login, register, logout.
+// Authentication and account registration routes.
 const path = require("path");
 const bcrypt = require("bcryptjs");
-const { renderError, renderSuccess } = require("../utils/html");
+const { isValidPassword, isValidUsername, normalizeUsername } = require("../utils/security");
 
 module.exports = function registerAuthRoutes(app, deps) {
-  const { HAS_DIST, DIST_DIR, ROOT_DIR, USERS, SHARES, saveUsers, saveShares, ensureDir, UPLOADS_USERS } = deps;
+  const {
+    appRedirect,
+    DIST_DIR,
+    FRONTEND_BASE_URL,
+    HAS_DIST,
+    loginLimiter,
+    renderError,
+    saveShares,
+    saveUsers,
+    SHARES,
+    UPLOADS_USERS,
+    USERS,
+  } = deps;
 
-  // Serve SPA for login route.
-  app.get("/login", (req, res) => {
-    if (HAS_DIST) return res.sendFile(path.join(DIST_DIR, "index.html"));
-    return res.status(500).send("Frontend build missing. Run: npm run build");
+  function serveSpa(pathname) {
+    return (_req, res) => {
+      if (HAS_DIST) return res.sendFile(path.join(DIST_DIR, "index.html"));
+      if (FRONTEND_BASE_URL) return res.redirect(`${FRONTEND_BASE_URL}${pathname}`);
+      return res.status(500).send("Frontend build missing. Run: npm run build");
+    };
+  }
+
+  app.get("/login", serveSpa("/login"));
+  app.get("/register", serveSpa("/register"));
+
+  app.post("/login", loginLimiter, async (req, res, next) => {
+    try {
+      const username = normalizeUsername(req.body.username);
+      const password = typeof req.body.password === "string" ? req.body.password : "";
+      const stored = USERS[username];
+      const valid = typeof stored === "string" && (await bcrypt.compare(password, stored));
+      if (!valid) {
+        return res.status(401).send(renderError("Unable to sign in", "Check your username and password, then try again."));
+      }
+
+      if (bcrypt.getRounds(stored) < 12) {
+        USERS[username] = await bcrypt.hash(password, 12);
+        saveUsers(USERS);
+      }
+
+      return req.session.regenerate((error) => {
+        if (error) return next(error);
+        req.session.user = username;
+        const userDir = path.join(UPLOADS_USERS, username);
+        require("fs").mkdirSync(userDir, { recursive: true });
+        if (!Array.isArray(SHARES.users[username])) SHARES.users[username] = [];
+        saveShares(SHARES);
+        return req.session.save((saveError) => {
+          if (saveError) return next(saveError);
+          return appRedirect(res, "/dashboard");
+        });
+      });
+    } catch (error) {
+      return next(error);
+    }
   });
 
-  // Handle login form submission.
-  app.post("/login", async (req, res) => {
-    const { username, password } = req.body;
-    if (!USERS[username]) {
-      return res.send(
-        renderError(
-          "User Not Found",
-          `The username <b>${username}</b> does not exist.`,
-          `<a href="/register">Create Account</a> | <a href="/login">Try Again</a>`
-        )
-      );
+  app.post("/register", loginLimiter, async (req, res, next) => {
+    try {
+      const username = normalizeUsername(req.body.username);
+      const password = typeof req.body.password === "string" ? req.body.password : "";
+      if (!isValidUsername(username) || !isValidPassword(password)) {
+        return res.status(400).send(
+          renderError("Invalid account details", "Use a 3-32 character username and a password of at least 12 characters.")
+        );
+      }
+      if (Object.prototype.hasOwnProperty.call(USERS, username)) {
+        return res.status(409).send(renderError("Username unavailable", "Choose a different username."));
+      }
+
+      USERS[username] = await bcrypt.hash(password, 12);
+      saveUsers(USERS);
+      require("fs").mkdirSync(path.join(UPLOADS_USERS, username), { recursive: true });
+      SHARES.users[username] = [];
+      saveShares(SHARES);
+      return appRedirect(res, "/login?created=1");
+    } catch (error) {
+      return next(error);
     }
-
-    const stored = USERS[username];
-    const valid = await bcrypt.compare(password, stored);
-    if (!valid) {
-      return res.send(
-        renderError(
-          "Incorrect Password",
-          "The password you entered is not correct.",
-          `<a href="/login">Back to Login</a>`
-        )
-      );
-    }
-
-    req.session.user = username;
-    ensureDir(path.join(UPLOADS_USERS, username));
-    if (!SHARES.users[username]) SHARES.users[username] = [];
-    saveShares(SHARES);
-
-    return res.redirect("/dashboard");
   });
 
-  // Serve SPA for register route.
-  app.get("/register", (req, res) => {
-    if (HAS_DIST) return res.sendFile(path.join(DIST_DIR, "index.html"));
-    return res.status(500).send("Frontend build missing. Run: npm run build");
+  app.post("/logout", (req, res) => {
+    req.session.destroy(() => {
+      res.clearCookie("babyshare.sid");
+      appRedirect(res, "/");
+    });
   });
-
-  // Handle registration form submission.
-  app.post("/register", async (req, res) => {
-    const { username, password } = req.body;
-    if (!username || !password) {
-      return res.send(
-        renderError(
-          "Missing Fields",
-          "You must provide both a username and a password.",
-          `<a href="/register" class="btn-primary">Try Again</a>`
-        )
-      );
-    }
-
-    if (USERS[username]) {
-      return res.send(
-        renderError(
-          "Username Taken",
-          `The username <b>${username}</b> is already in use.`,
-          `<a href="/register" class="btn-primary">Try Again</a>`
-        )
-      );
-    }
-
-    const hash = await bcrypt.hash(password, 10);
-    USERS[username] = hash;
-    saveUsers(USERS);
-
-    ensureDir(path.join(UPLOADS_USERS, username));
-    if (!SHARES.users[username]) SHARES.users[username] = [];
-    saveShares(SHARES);
-
-    return res.redirect("/login?created=1");
-  });
-
-  // Clear session and return to home.
-  app.get("/logout", (req, res) => req.session.destroy(() => res.redirect("/")));
 };
