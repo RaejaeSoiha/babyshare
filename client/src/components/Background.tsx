@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 
 type Particle = {
+  alpha: number;
   color: string;
   radius: number;
   vx: number;
@@ -25,19 +26,31 @@ export default function Background() {
     const particles: Particle[] = [];
     let width = 0;
     let height = 0;
+    let lastFrameTime = 0;
+    let mobileFrameInterval = 0;
 
     const placeOnEdge = () => {
+      // Give the lower corners a little more presence without crowding the center.
+      if (Math.random() < 0.3) {
+        const onLeft = Math.random() < 0.5;
+        return {
+          x: width * (onLeft ? 0.03 + Math.random() * 0.15 : 0.82 + Math.random() * 0.15),
+          y: height * (0.76 + Math.random() * 0.2),
+          lowerCorner: true,
+        };
+      }
       const side = Math.floor(Math.random() * 4);
       const edgeDepth = 0.04 + Math.random() * 0.19;
-      if (side === 0) return { x: Math.random() * width, y: height * edgeDepth };
-      if (side === 1) return { x: width * (1 - edgeDepth), y: Math.random() * height };
-      if (side === 2) return { x: Math.random() * width, y: height * (1 - edgeDepth) };
-      return { x: width * edgeDepth, y: Math.random() * height };
+      if (side === 0) return { x: Math.random() * width, y: height * edgeDepth, lowerCorner: false };
+      if (side === 1) return { x: width * (1 - edgeDepth), y: Math.random() * height, lowerCorner: false };
+      if (side === 2) return { x: Math.random() * width, y: height * (1 - edgeDepth), lowerCorner: false };
+      return { x: width * edgeDepth, y: Math.random() * height, lowerCorner: false };
     };
 
     const resize = () => {
       width = window.innerWidth;
       height = window.innerHeight;
+      mobileFrameInterval = width < 680 ? 33 : 0;
       const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
       canvas.width = Math.round(width * pixelRatio);
       canvas.height = Math.round(height * pixelRatio);
@@ -54,12 +67,18 @@ export default function Background() {
         ...position,
         vx: (Math.random() - 0.5) * 0.18,
         vy: (Math.random() - 0.5) * 0.18,
-        radius: 1.2 + Math.random() * 1.1,
+        alpha: position.lowerCorner ? 0.78 : 0.64,
+        radius: position.lowerCorner ? 1.55 + Math.random() * 0.85 : 1.1 + Math.random() * 0.95,
         color: COLORS[Math.floor(Math.random() * COLORS.length)],
       });
     }
 
-    const draw = () => {
+    const draw = (timestamp = 0) => {
+      if (mobileFrameInterval && timestamp - lastFrameTime < mobileFrameInterval) {
+        rafRef.current = requestAnimationFrame(draw);
+        return;
+      }
+      lastFrameTime = timestamp;
       context.clearRect(0, 0, width, height);
       context.lineWidth = 0.55;
 
@@ -72,7 +91,7 @@ export default function Background() {
         context.beginPath();
         context.arc(particle.x, particle.y, particle.radius, 0, Math.PI * 2);
         context.fillStyle = particle.color;
-        context.globalAlpha = 0.72;
+        context.globalAlpha = particle.alpha;
         context.fill();
       });
 
@@ -86,7 +105,7 @@ export default function Background() {
             context.moveTo(a.x, a.y);
             context.lineTo(b.x, b.y);
             context.strokeStyle = "#58cfff";
-            context.globalAlpha = (1 - distance / 230) * 0.18;
+            context.globalAlpha = (1 - distance / 230) * 0.16;
             context.stroke();
           }
         }

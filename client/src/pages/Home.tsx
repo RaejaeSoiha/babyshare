@@ -18,6 +18,14 @@ type UserUploadResult = { links: UserUploadLink[] };
 
 const MAX_FILE_SIZE = 1024 * 1024 * 1024;
 
+function formatFileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB"];
+  const unitIndex = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)) - 1, units.length - 1);
+  const value = bytes / (1024 ** (unitIndex + 1));
+  return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} ${units[unitIndex]}`;
+}
+
 function LightningMark() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -183,7 +191,16 @@ export default function Home() {
           >
             <div className="upload-icon"><UploadArrow /></div>
             <h2>{files.length ? `${files.length} ${files.length === 1 ? "file" : "files"} ready` : "Drag and drop files here"}</h2>
-            <p>{files.length ? files.map((file) => file.name).join(", ") : "or click to browse"}</p>
+            {files.length ? (
+              <div className="upload-selection" aria-live="polite">
+                {files.map((file) => (
+                  <span className="upload-file" key={`${file.name}-${file.lastModified}`} title={`${file.name} (${formatFileSize(file.size)})`}>
+                    <span className="upload-file-name">{file.name}</span>
+                    <span className="upload-file-size">{formatFileSize(file.size)}</span>
+                  </span>
+                ))}
+              </div>
+            ) : <p>or click to browse</p>}
             <input
               ref={inputRef}
               className="visually-hidden"
@@ -193,8 +210,8 @@ export default function Home() {
               aria-label={isSignedIn ? "Choose files to upload" : "Choose a file to upload"}
             />
             <div className="upload-actions">
-              <button className="browse-button" type="button" onClick={() => inputRef.current?.click()}>Browse files</button>
-              <button className="upload-button" type="button" onClick={onUpload} disabled={loading || !accountChecked}>
+              <button className="browse-button" type="button" onClick={() => inputRef.current?.click()} disabled={loading}>Browse files</button>
+              <button className="upload-button" type="button" onClick={onUpload} disabled={loading || !accountChecked || files.length === 0} aria-busy={loading}>
                 {loading ? `Uploading ${progress}%` : "Upload Files"}
               </button>
             </div>

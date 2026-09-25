@@ -778,7 +778,7 @@ a {
   display: flex;
   flex-direction: column;
   color: #f7faff;
-  overflow: hidden;
+  overflow-x: hidden;
 }
 
 .site-header {
@@ -803,15 +803,19 @@ a {
 
 .brand-mark {
   display: grid;
-  width: 25px;
-  height: 25px;
+  width: 26px;
+  height: 27px;
+  flex: 0 0 26px;
   place-items: center;
   color: #e7b95d;
+  transform: translateY(-0.5px);
 }
 
 .brand-mark svg {
+  display: block;
   width: 100%;
   height: 100%;
+  filter: drop-shadow(0 2px 5px rgba(231, 185, 93, 0.2));
 }
 
 .nav-action {
@@ -894,11 +898,11 @@ a {
 .upload-dropzone {
   position: relative;
   display: flex;
-  min-height: 342px;
+  min-height: 282px;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 38px 30px 30px;
+  padding: 28px 30px 24px;
   border: 1px dashed rgba(83, 186, 255, 0.66);
   border-radius: 22px;
   background:
@@ -920,9 +924,9 @@ a {
 
 .upload-icon {
   display: grid;
-  width: 55px;
-  height: 55px;
-  margin-bottom: 17px;
+  width: 50px;
+  height: 50px;
+  margin-bottom: 11px;
   place-items: center;
   border: 1px solid rgba(92, 202, 255, 0.25);
   border-radius: 17px;
@@ -931,8 +935,8 @@ a {
 }
 
 .upload-icon svg {
-  width: 29px;
-  height: 29px;
+  width: 27px;
+  height: 27px;
 }
 
 .upload-dropzone h2 {
@@ -945,11 +949,48 @@ a {
 
 .upload-dropzone > p:not(.upload-hint) {
   max-width: min(520px, 100%);
-  margin: 9px 0 23px;
+  margin: 7px 0 18px;
   overflow: hidden;
   color: #94acc8;
   font-size: 0.93rem;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-selection {
+  display: flex;
+  max-width: min(520px, 100%);
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 7px;
+  margin: 8px 0 18px;
+}
+
+.upload-file {
+  display: grid;
+  min-width: 0;
+  max-width: 100%;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 5px 9px;
+  border: 1px solid rgba(126, 205, 255, 0.18);
+  border-radius: 7px;
+  background: rgba(79, 162, 220, 0.08);
+  color: #c8e5ff;
+  font-size: 0.82rem;
+  line-height: 1.25;
+}
+
+.upload-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-file-size {
+  color: #82cfff;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
@@ -1001,6 +1042,12 @@ a {
 }
 
 .upload-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+  box-shadow: none;
+}
+
+.browse-button:disabled {
   cursor: wait;
   opacity: 0.62;
 }
@@ -1204,9 +1251,24 @@ a {
   }
 
   .upload-dropzone {
-    min-height: 332px;
-    padding: 32px 20px 26px;
+    min-height: 280px;
+    padding: 23px 20px 21px;
     border-radius: 18px;
+  }
+
+  .upload-icon {
+    width: 47px;
+    height: 47px;
+    margin-bottom: 10px;
+  }
+
+  .upload-selection {
+    width: 100%;
+    margin-bottom: 15px;
+  }
+
+  .upload-file {
+    width: 100%;
   }
 
   .upload-actions {
