@@ -1,134 +1,248 @@
-// Marketing landing page.
-export default function Home() {
+import { useEffect, useRef, useState } from "react";
+import type { DragEvent } from "react";
+import { apiFetch, apiUrl, uploadFormData } from "../lib/api";
+
+type Account = { user: string; isAdmin: boolean };
+type GuestUploadResult = {
+  downloadPath?: string;
+  expires: number;
+  label: string;
+  link: string;
+  passwordRequired: boolean;
+  previewPath?: string;
+  qrCode: string;
+  sharePath?: string;
+};
+type UserUploadLink = { expires: number; name: string; passwordRequired: boolean; qr: string; url: string };
+type UserUploadResult = { links: UserUploadLink[] };
+
+const MAX_FILE_SIZE = 1024 * 1024 * 1024;
+
+function LightningMark() {
   return (
-    <div className="page home">
-      <main className="hero home-hero">
-        <div className="hero-shell">
-          <div className="hero-copy">
-            <div className="hero-title">
-              <span className="hero-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" role="img">
-                  <path
-                    d="M14.7 3.2c-2.7.7-5.1 2.2-6.9 4.1L4 11l3 3 3.7-3.7c2-1.9 3.5-4.2 4.3-7.1.2-.8-.6-1.6-1.3-1.3z"
-                    fill="currentColor"
-                  />
-                  <path
-                    d="M6.5 17.5l-2.5 3.8 3.8-2.5 1.2-1.2-2.5-2.5-1.2 1.2z"
-                    fill="currentColor"
-                  />
-                  <circle cx="13.5" cy="7.5" r="1.5" fill="#0b0f16" />
-                </svg>
-              </span>
-              <h1>Baby Share</h1>
-            </div>
-            <p className="tagline">Fast. Private. Encrypted.</p>
-            <p className="subcopy">
-              Drop files on your LAN, generate a secure link, and let your crew pull it down
-              in seconds. No cloud sync. No public URLs. Just your network.
-            </p>
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M13.2 1.8 4.6 13h6.1l-.9 9.2L19.4 11h-6.1l-.1-9.2Z" fill="currentColor" />
+    </svg>
+  );
+}
 
-            <div className="badges">
-              <span className="badge badge-encrypted">
-                <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
-                  <path
-                    d="M7 10V8a5 5 0 0 1 10 0v2h1a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1h1zm2 0h6V8a3 3 0 0 0-6 0v2z"
-                    fill="currentColor"
-                  />
-                </svg>
-                End-to-end encryption
-              </span>
-              <span className="badge badge-expiry">
-                <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
-                  <path
-                    d="M6 2a1 1 0 0 1 1 1v1h10V3a1 1 0 1 1 2 0v1h1a1 1 0 0 1 1 1v3H3V5a1 1 0 0 1 1-1h1V3a1 1 0 0 1 1-1zm-3 8h20v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-9zm9 2v5l4-2.5-4-2.5z"
-                    fill="currentColor"
-                  />
-                </svg>
-                30-day retention
-              </span>
-            </div>
+function UploadArrow() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 16V4m0 0L7.7 8.3M12 4l4.3 4.3M5 15.5v3A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5v-3" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.7" />
+    </svg>
+  );
+}
 
-            <div className="cta-row">
-              <a className="btn btn-login" href="/login">Login</a>
-              {/* <a className="btn btn-register" href="/register">Register</a> */}
-              <a className="btn btn-guest" href="/guest-upload">Upload as Guest</a>
-            </div>
+function ShieldIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5.3c0 4.4 3 7.9 7 9.7 4-1.8 7-5.3 7-9.7V6l-7-3Zm-3.2 9 2.1 2.1 4.4-4.4" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.7" /></svg>;
+}
 
-            <div className="trust-row">
-              <span>LAN-only by default</span>
-              <span>Zero cloud storage</span>
-              <span>Time-limited share links</span>
+function SpeedIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14.5A8 8 0 1 1 20 14.5M12 12l3.6-3.6M12 17.5h.01" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.7" /></svg>;
+}
+
+function ClockIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" strokeWidth="1.7" /><path d="M12 7.5V12l3 1.8" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.7" /></svg>;
+}
+
+function localGuestPath(result: GuestUploadResult, action: "share" | "preview" | "download") {
+  const suppliedPath = action === "share"
+    ? result.sharePath
+    : action === "preview"
+      ? result.previewPath
+      : result.downloadPath;
+  if (suppliedPath) return suppliedPath;
+
+  try {
+    const url = new URL(result.link);
+    if (action === "share") return `${url.pathname}${url.search}`;
+    const token = url.searchParams.get("token");
+    if (token) return `/guest-download?token=${encodeURIComponent(token)}&action=${action}`;
+  } catch {
+    // Fall back to the original share URL below when an older response is malformed.
+  }
+  return result.link;
+}
+
+export default function Home() {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [account, setAccount] = useState<Account | null>(null);
+  const [accountChecked, setAccountChecked] = useState(false);
+  const [files, setFiles] = useState<File[]>([]);
+  const [dragging, setDragging] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState("");
+  const [guestResult, setGuestResult] = useState<GuestUploadResult | null>(null);
+  const [userResult, setUserResult] = useState<UserUploadResult | null>(null);
+
+  useEffect(() => {
+    apiFetch("/api/me")
+      .then((response) => response.ok ? response.json() as Promise<Account> : null)
+      .then((data) => setAccount(data))
+      .catch(() => setAccount(null))
+      .finally(() => setAccountChecked(true));
+  }, []);
+
+  const isSignedIn = Boolean(account);
+  const guestSharePath = guestResult ? localGuestPath(guestResult, "share") : "";
+  const guestPreviewPath = guestResult ? localGuestPath(guestResult, "preview") : "";
+  const guestDownloadPath = guestResult ? localGuestPath(guestResult, "download") : "";
+
+  const selectFiles = (nextFiles: FileList | File[]) => {
+    const selected = Array.from(nextFiles);
+    setError("");
+    setGuestResult(null);
+    setUserResult(null);
+
+    if (!isSignedIn && selected.length > 1) {
+      setFiles([selected[0]]);
+      setError("Guest uploads accept one file at a time. Sign in to upload multiple files.");
+      return;
+    }
+    if (selected.some((file) => file.size > MAX_FILE_SIZE)) {
+      setFiles([]);
+      setError("Each file must be 1 GB or smaller.");
+      return;
+    }
+    setFiles(selected);
+  };
+
+  const onDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setDragging(false);
+    selectFiles(event.dataTransfer.files);
+  };
+
+  const onUpload = async () => {
+    if (files.length === 0 || loading) {
+      if (files.length === 0) setError("Choose at least one file to upload.");
+      return;
+    }
+
+    setError("");
+    setLoading(true);
+    setProgress(0);
+    setGuestResult(null);
+    setUserResult(null);
+    const payload = new FormData();
+    if (isSignedIn) {
+      files.forEach((file) => payload.append("files", file));
+    } else {
+      payload.append("file", files[0]);
+    }
+
+    try {
+      if (isSignedIn) {
+        setUserResult(await uploadFormData<UserUploadResult>("/upload", payload, setProgress));
+      } else {
+        setGuestResult(await uploadFormData<GuestUploadResult>("/guest-upload", payload, setProgress));
+      }
+      setFiles([]);
+      if (inputRef.current) inputRef.current.value = "";
+    } catch (uploadError) {
+      const code = uploadError instanceof Error ? uploadError.message : "";
+      setError(code === "file_too_large" ? "Each file must be 1 GB or smaller." : "Upload failed. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="home-page">
+      <header className="site-header">
+        <a className="brand" href="/" aria-label="BabyShare home">
+          <span className="brand-mark"><LightningMark /></span>
+          <span>BabyShare</span>
+        </a>
+        <nav aria-label="Account navigation">
+          {isSignedIn ? (
+            <a className="nav-action" href="/dashboard">Open dashboard</a>
+          ) : (
+            <a className="nav-action" href="/login">Log in</a>
+          )}
+        </nav>
+      </header>
+
+      <main className="home-main">
+        <section className="home-hero" aria-labelledby="home-title">
+          <p className="hero-kicker">Private file sharing</p>
+          <h1 id="home-title">Baby<span>Share</span></h1>
+          <p className="home-tagline">Share files. Simply and securely.</p>
+          <p className="home-subcopy">Fast, private file sharing across your network.</p>
+        </section>
+
+        <section className="upload-section" aria-label="File upload">
+          <div
+            className={`upload-dropzone${dragging ? " is-dragging" : ""}`}
+            onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
+            onDragOver={(event) => event.preventDefault()}
+            onDragLeave={(event) => { if (event.currentTarget === event.target) setDragging(false); }}
+            onDrop={onDrop}
+          >
+            <div className="upload-icon"><UploadArrow /></div>
+            <h2>{files.length ? `${files.length} ${files.length === 1 ? "file" : "files"} ready` : "Drag and drop files here"}</h2>
+            <p>{files.length ? files.map((file) => file.name).join(", ") : "or click to browse"}</p>
+            <input
+              ref={inputRef}
+              className="visually-hidden"
+              type="file"
+              multiple={isSignedIn}
+              onChange={(event) => event.target.files && selectFiles(event.target.files)}
+              aria-label={isSignedIn ? "Choose files to upload" : "Choose a file to upload"}
+            />
+            <div className="upload-actions">
+              <button className="browse-button" type="button" onClick={() => inputRef.current?.click()}>Browse files</button>
+              <button className="upload-button" type="button" onClick={onUpload} disabled={loading || !accountChecked}>
+                {loading ? `Uploading ${progress}%` : "Upload Files"}
+              </button>
             </div>
+            <p className="upload-hint">{isSignedIn ? "Signed in — upload up to 20 files, 1 GB each." : "Guest upload — one file up to 1 GB."}</p>
           </div>
 
-          <div className="hero-visual">
-            <div className="preview-card">
-              <div className="preview-head">
-                <div>
-                  <p className="eyebrow">Secure Drop Zone</p>
-                  <h2>Share in seconds</h2>
-                </div>
-                <span className="status-pill">Live</span>
+          {!isSignedIn && <p className="advanced-upload">Need a label or password? <a href="/guest-upload">Use advanced guest upload</a>.</p>}
+          {!accountChecked && <p className="upload-hint" aria-live="polite">Checking your session…</p>}
+          {loading && <div className="upload-progress home-progress" aria-live="polite"><progress max="100" value={progress} /><span>{progress}%</span></div>}
+          {error && <p className="error home-error" role="alert">{error}</p>}
+
+          {guestResult && (
+            <div className="home-upload-result" aria-live="polite">
+              <strong>File uploaded</strong>
+              <span>Your file is ready to preview, download, or share.</span>
+              <div className="guest-file-actions" aria-label="Uploaded file actions">
+                <a href={apiUrl(guestSharePath)} target="_blank" rel="noreferrer">Open share</a>
+                <a href={apiUrl(guestPreviewPath)} target="_blank" rel="noreferrer">Preview</a>
+                <a className="primary-action" href={apiUrl(guestDownloadPath)} target="_blank" rel="noreferrer">Download</a>
               </div>
-              <div className="preview-list">
-                <div>
-                  <p className="preview-label">Uploads</p>
-                  <p className="preview-value">12 files · 3.4 GB</p>
-                </div>
-                <div>
-                  <p className="preview-label">Active link</p>
-                  <p className="preview-value">expires in 29 days</p>
-                </div>
-                <div>
-                  <p className="preview-label">Transfer speed</p>
-                  <p className="preview-value">940 Mbps peak</p>
-                </div>
-              </div>
-              <div className="preview-actions">
-                <a className="btn btn-ghost" href="/login">Open file vault</a>
-              </div>
+              <a className="link" href={guestResult.link} target="_blank" rel="noreferrer">Share link: {guestResult.link}</a>
             </div>
-          </div>
-        </div>
+          )}
+          {userResult && (
+            <div className="home-upload-result" aria-live="polite">
+              <strong>{userResult.links.length} {userResult.links.length === 1 ? "share link" : "share links"} ready</strong>
+              <a className="link" href="/dashboard">Open your dashboard to manage files and copy links.</a>
+            </div>
+          )}
+        </section>
 
-        <div className="feature-grid">
-          <div className="feature-card">
-            <span className="feature-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" role="img">
-                <path
-                  d="M13 2L3 14h7l-1 8 12-14h-7l-1-6z"
-                  fill="currentColor"
-                />
-              </svg>
-            </span>
-            <div className="feature-text">LAN speed performance</div>
-          </div>
-          <div className="feature-card">
-            <span className="feature-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" role="img">
-                <path
-                  d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm6.9 9h-3.2a15 15 0 0 0-1.3-5 8.04 8.04 0 0 1 4.5 5zm-6.9-7c1.1 1.4 2 3.4 2.4 5H9.6c.4-1.6 1.3-3.6 2.4-5zM5.6 6a15 15 0 0 0-1.3 5H1.1a8.04 8.04 0 0 1 4.5-5zM1.1 13h3.2a15 15 0 0 0 1.3 5 8.04 8.04 0 0 1-4.5-5zm10.9 7c-1.1-1.4-2-3.4-2.4-5h4.8c-.4 1.6-1.3 3.6-2.4 5zm2.4-7H9.6a14.1 14.1 0 0 1 0-2h4.8a14.1 14.1 0 0 1 0 2zm4.1 0a8.04 8.04 0 0 1-4.5 5 15 15 0 0 0 1.3-5h3.2z"
-                  fill="currentColor"
-                />
-              </svg>
-            </span>
-            <div className="feature-text">Private & local only</div>
-          </div>
-          <div className="feature-card">
-            <span className="feature-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" role="img">
-                <path
-                  d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6z"
-                  fill="currentColor"
-                />
-              </svg>
-            </span>
-            <div className="feature-text">Easy file management</div>
-          </div>
-        </div>
-
-        <div className="tip">Tip: This is a private LAN-only file sharing service.</div>
+        <section className="feature-indicators" aria-label="BabyShare features">
+          <article>
+            <span className="indicator-icon private"><ShieldIcon /></span>
+            <div><h2>Private Sharing</h2><p>Your files stay on your network.</p></div>
+          </article>
+          <article>
+            <span className="indicator-icon fast"><SpeedIcon /></span>
+            <div><h2>Fast Transfers</h2><p>Quick and reliable.</p></div>
+          </article>
+          <article>
+            <span className="indicator-icon expiry"><ClockIcon /></span>
+            <div><h2>Expiring Links</h2><p>Control how long files last.</p></div>
+          </article>
+        </section>
       </main>
+
+      <footer className="site-footer">Private sharing · Password protection available · Expiring links</footer>
     </div>
   );
 }

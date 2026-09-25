@@ -92,13 +92,19 @@ module.exports = function registerGuestRoutes(app, deps) {
       };
       saveShares(SHARES);
 
-      const link = `${getShareBaseUrl()}${guestPath(token)}`;
+      const sharePath = guestPath(token);
+      const previewPath = downloadPath(token, "preview");
+      const downloadPathname = downloadPath(token, "download");
+      const link = `${getShareBaseUrl()}${sharePath}`;
       return res.status(201).json({
+        downloadPath: downloadPathname,
         expires,
         label,
         link,
         passwordRequired: Boolean(hash),
+        previewPath,
         qrCode: await QRCode.toDataURL(link),
+        sharePath,
       });
     } catch (error) {
       await fs.promises.unlink(req.file.path).catch(() => {});

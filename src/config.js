@@ -53,7 +53,10 @@ function provisionDesktopSecrets() {
 }
 
 provisionDesktopSecrets();
-const FRONTEND_BASE_URL = (process.env.FRONTEND_BASE_URL || "").trim().replace(/\/+$/, "");
+// The Vite client runs on this origin during local development and proxies API traffic to the backend.
+// Treat it as a trusted same-origin frontend so state-changing requests retain CSRF protection when proxied.
+const defaultDevelopmentFrontend = NODE_ENV === "development" && !IS_DESKTOP ? "http://localhost:3000" : "";
+const FRONTEND_BASE_URL = (process.env.FRONTEND_BASE_URL || defaultDevelopmentFrontend).trim().replace(/\/+$/, "");
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || process.env.DOMAIN || "")
   .trim()
   .replace(/\/+$/, "");

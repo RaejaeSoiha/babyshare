@@ -10,6 +10,7 @@ const backendRoutes = [
   "/guest-download",
   "/guest-login",
   "/guest-upload",
+  "/guest-view",
   "/login",
   "/logout",
   "/register",
