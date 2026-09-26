@@ -94,6 +94,33 @@ async function login(username, password) {
   return cookie.split(";", 1)[0];
 }
 
+function lanIdentity() {
+  return {
+    deviceId: crypto.randomUUID().replace(/-/g, ""),
+    deviceToken: crypto.randomBytes(36).toString("base64url"),
+    name: "Test device",
+    platform: "Test browser",
+  };
+}
+
+function lanHeaders(identity, json = true) {
+  return {
+    ...(json ? { "Content-Type": "application/json" } : {}),
+    "x-babyshare-device-id": identity.deviceId,
+    "x-babyshare-device-token": identity.deviceToken,
+    Origin: baseUrl,
+  };
+}
+
+async function announceLanDevice(identity) {
+  const response = await fetchApp("/api/lan/presence", {
+    body: JSON.stringify(identity),
+    headers: { "Content-Type": "application/json", Origin: baseUrl },
+    method: "POST",
+  });
+  assert.equal(response.status, 200);
+}
+
 test.before(async () => {
   await Promise.all([
     makeEncryptedFile("alice", "alice-secret.enc", "alice-only"),
@@ -164,4 +191,153 @@ test("registration blocks traversal usernames and state changes require a same-o
     method: "POST",
   });
   assert.equal(crossOrigin.status, 403);
+});
+
+test("LAN transfers require mutual temporary-code verification and are erased after download", async () => {
+  const sender = lanIdentity();
+  const recipient = lanIdentity();
+  await announceLanDevice(sender);
+  await announceLanDevice(recipient);
+
+  const devices = await fetchApp("/api/lan/devices", { headers: lanHeaders(sender, false) });
+  assert.equal(devices.status, 200);
+  assert.ok((await devices.json()).devices.some((device) => device.id === recipient.deviceId && device.user === undefined));
+
+  const beforeVerification = await fetchApp("/api/lan/transfers/request", {
+    body: JSON.stringify({ files: [{ name: "nearby.txt", size: 20 }], recipientId: recipient.deviceId }),
+    headers: lanHeaders(sender),
+    method: "POST",
+  });
+  assert.equal(beforeVerification.status, 409);
+
+  const verificationRequest = await fetchApp("/api/lan/verifications/request", {
+    body: JSON.stringify({ recipientId: recipient.deviceId }),
+    headers: lanHeaders(sender),
+    method: "POST",
+  });
+  assert.equal(verificationRequest.status, 201);
+  const senderVerification = (await verificationRequest.json()).verification;
+  assert.match(senderVerification.code, /^\d{2}$/);
+
+  const recipientVerifications = await fetchApp("/api/lan/verifications", { headers: lanHeaders(recipient, false) });
+  assert.equal(recipientVerifications.status, 200);
+  const recipientVerification = (await recipientVerifications.json()).verifications.find((item) => item.id === senderVerification.id);
+  assert.equal(recipientVerification.code, senderVerification.code);
+
+  const senderConfirmed = await fetchApp(`/api/lan/verifications/${senderVerification.id}/confirm`, {
+    body: JSON.stringify({}),
+    headers: lanHeaders(sender),
+    method: "POST",
+  });
+  assert.equal(senderConfirmed.status, 200);
+  assert.equal((await senderConfirmed.json()).verification.status, "pending");
+
+  const recipientConfirmed = await fetchApp(`/api/lan/verifications/${senderVerification.id}/confirm`, {
+    body: JSON.stringify({}),
+    headers: lanHeaders(recipient),
+    method: "POST",
+  });
+  assert.equal(recipientConfirmed.status, 200);
+  assert.equal((await recipientConfirmed.json()).verification.status, "verified");
+
+  const chatRequested = await fetchApp("/api/lan/chats/request", {
+    body: JSON.stringify({ recipientId: recipient.deviceId }),
+    headers: lanHeaders(sender),
+    method: "POST",
+  });
+  assert.equal(chatRequested.status, 201);
+  const chat = (await chatRequested.json()).chat;
+  assert.equal(chat.status, "pending");
+
+  const chatAccepted = await fetchApp(`/api/lan/chats/${chat.id}/accept`, {
+    body: JSON.stringify({}),
+    headers: lanHeaders(recipient),
+    method: "POST",
+  });
+  assert.equal(chatAccepted.status, 200);
+  assert.equal((await chatAccepted.json()).chat.status, "active");
+
+  const messageSent = await fetchApp(`/api/lan/chats/${chat.id}/messages`, {
+    body: JSON.stringify({ text: "This message must disappear when chat ends." }),
+    headers: lanHeaders(sender),
+    method: "POST",
+  });
+  assert.equal(messageSent.status, 201);
+
+  const recipientChats = await fetchApp("/api/lan/chats", { headers: lanHeaders(recipient, false) });
+  const recipientChat = (await recipientChats.json()).chats.find((item) => item.id === chat.id);
+  assert.equal(recipientChat.messages[0].text, "This message must disappear when chat ends.");
+
+  const chatEnded = await fetchApp(`/api/lan/chats/${chat.id}/end`, {
+    body: JSON.stringify({}),
+    headers: lanHeaders(recipient),
+    method: "POST",
+  });
+  assert.equal(chatEnded.status, 204);
+  const erasedChats = await fetchApp("/api/lan/chats", { headers: lanHeaders(sender, false) });
+  assert.deepEqual((await erasedChats.json()).chats, []);
+
+  const requested = await fetchApp("/api/lan/transfers/request", {
+    body: JSON.stringify({
+      files: [{ name: "nearby.txt", size: 20 }],
+      recipientId: recipient.deviceId,
+    }),
+    headers: lanHeaders(sender),
+    method: "POST",
+  });
+  assert.equal(requested.status, 201);
+  const transfer = (await requested.json()).transfers[0];
+  assert.equal(transfer.status, "pending");
+
+  const unauthorizedDownload = await fetchApp(`/api/lan/transfers/${transfer.id}/download`);
+  assert.equal(unauthorizedDownload.status, 403);
+
+  const spentVerification = await fetchApp("/api/lan/verifications", { headers: lanHeaders(sender, false) });
+  assert.deepEqual((await spentVerification.json()).verifications, []);
+
+  const accepted = await fetchApp(`/api/lan/transfers/${transfer.id}/accept`, {
+    body: JSON.stringify({}),
+    headers: lanHeaders(recipient),
+    method: "POST",
+  });
+  assert.equal(accepted.status, 200);
+
+  const content = new FormData();
+  content.append("file", new Blob(["nearby transfer file"]), "nearby.txt");
+  const uploaded = await fetchApp(`/api/lan/transfers/${transfer.id}/content`, {
+    body: content,
+    headers: lanHeaders(sender, false),
+    method: "POST",
+  });
+  assert.equal(uploaded.status, 201);
+  assert.equal((await uploaded.json()).transfer.status, "ready");
+
+  const downloadPath = `/api/lan/transfers/${transfer.id}/download?deviceId=${recipient.deviceId}&deviceToken=${recipient.deviceToken}`;
+  const download = await fetchApp(downloadPath);
+  assert.equal(download.status, 200);
+  assert.equal(await download.text(), "nearby transfer file");
+  const consumed = await fetchApp(downloadPath);
+  assert.equal(consumed.status, 404);
+});
+
+test("declined verification is removed instead of being kept as history", async () => {
+  const sender = lanIdentity();
+  const recipient = lanIdentity();
+  await announceLanDevice(sender);
+  await announceLanDevice(recipient);
+  const requested = await fetchApp("/api/lan/verifications/request", {
+    body: JSON.stringify({ recipientId: recipient.deviceId }),
+    headers: lanHeaders(sender),
+    method: "POST",
+  });
+  assert.equal(requested.status, 201);
+  const verification = (await requested.json()).verification;
+  const declined = await fetchApp(`/api/lan/verifications/${verification.id}/decline`, {
+    body: JSON.stringify({}),
+    headers: lanHeaders(recipient),
+    method: "POST",
+  });
+  assert.equal(declined.status, 204);
+  const remaining = await fetchApp("/api/lan/verifications", { headers: lanHeaders(sender, false) });
+  assert.deepEqual((await remaining.json()).verifications, []);
 });

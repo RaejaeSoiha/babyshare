@@ -73,6 +73,52 @@ export default function Background() {
       });
     }
 
+    const drawGrid = (timestamp: number) => {
+      const spacing = width < 680 ? 92 : 120;
+      const horizontalShift = reduceMotion ? 0 : (timestamp * 0.005) % spacing;
+      const verticalShift = reduceMotion ? 0 : (timestamp * 0.0035) % spacing;
+      context.lineWidth = 0.55;
+
+      // A low-contrast network grid creates the row-and-column structure without obscuring content.
+      for (let x = -spacing + horizontalShift; x <= width + spacing; x += spacing) {
+        const pulse = (Math.sin((x / spacing) + (timestamp / 3_600)) + 1) * 0.5;
+        context.beginPath();
+        context.moveTo(x, 0);
+        context.lineTo(x, height);
+        context.strokeStyle = "#4bbfff";
+        context.globalAlpha = 0.13 + pulse * 0.07;
+        context.stroke();
+      }
+
+      for (let y = -spacing + verticalShift; y <= height + spacing; y += spacing) {
+        const pulse = (Math.sin((y / spacing) - (timestamp / 4_200)) + 1) * 0.5;
+        context.beginPath();
+        context.moveTo(0, y);
+        context.lineTo(width, y);
+        context.strokeStyle = "#61d0ff";
+        context.globalAlpha = 0.11 + pulse * 0.06;
+        context.stroke();
+      }
+
+      if (!reduceMotion) {
+        const scanX = ((timestamp * 0.018) % (width + spacing * 2)) - spacing;
+        const scanY = ((timestamp * 0.012) % (height + spacing * 2)) - spacing;
+        context.lineWidth = 0.9;
+        context.beginPath();
+        context.moveTo(scanX, 0);
+        context.lineTo(scanX, height);
+        context.strokeStyle = "#54cfff";
+        context.globalAlpha = 0.34;
+        context.stroke();
+        context.beginPath();
+        context.moveTo(0, scanY);
+        context.lineTo(width, scanY);
+        context.strokeStyle = "#68d9ff";
+        context.globalAlpha = 0.27;
+        context.stroke();
+      }
+    };
+
     const draw = (timestamp = 0) => {
       if (mobileFrameInterval && timestamp - lastFrameTime < mobileFrameInterval) {
         rafRef.current = requestAnimationFrame(draw);
@@ -80,6 +126,7 @@ export default function Background() {
       }
       lastFrameTime = timestamp;
       context.clearRect(0, 0, width, height);
+      drawGrid(timestamp);
       context.lineWidth = 0.55;
 
       particles.forEach((particle) => {

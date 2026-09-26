@@ -1,0 +1,224 @@
+// Browser-compatible LAN device presence and consent-based direct transfers.
+const fs = require("fs");
+const multer = require("multer");
+const { isValidUploadName, resolveWithin } = require("../utils/security");
+const { getLanScope, isPrivateLanAddress } = require("../utils/network");
+
+function credentialsFrom(req, allowQuery = false) {
+  const body = req.body && typeof req.body === "object" ? req.body : {};
+  return {
+    deviceId: req.get("x-babyshare-device-id") || body.deviceId || (allowQuery ? req.query.deviceId : ""),
+    deviceToken: req.get("x-babyshare-device-token") || body.deviceToken || (allowQuery ? req.query.deviceToken : ""),
+  };
+}
+
+module.exports = function registerLanRoutes(app, deps) {
+  const {
+    LAN_TRANSFER_TMP,
+    LAN_TRANSFERS,
+    SECRET_KEY,
+    decryptFile,
+    encryptFile,
+  } = deps;
+
+  const uploadTransfer = multer({
+    dest: LAN_TRANSFER_TMP,
+    fileFilter: (_req, file, callback) => callback(null, isValidUploadName(file.originalname)),
+    limits: { fieldNameSize: 100, fields: 0, fileSize: 1024 * 1024 * 1024, files: 1, parts: 1 },
+  });
+
+  function requireLanRequest(req, res) {
+    const remoteAddress = req.socket.remoteAddress || req.ip || "";
+    if (!isPrivateLanAddress(remoteAddress)) {
+      res.status(403).json({ error: "lan_only" });
+      return null;
+    }
+    return getLanScope(remoteAddress);
+  }
+
+  function requireDevice(req, res, { allowQuery = false } = {}) {
+    const scope = requireLanRequest(req, res);
+    if (!scope) return null;
+    const device = LAN_TRANSFERS.getAuthorizedDevice(credentialsFrom(req, allowQuery), scope);
+    if (!device) {
+      res.status(403).json({ error: "device_unauthorized" });
+      return null;
+    }
+    return device;
+  }
+
+  app.post("/api/lan/presence", (req, res) => {
+    const scope = requireLanRequest(req, res);
+    if (!scope) return;
+    const device = LAN_TRANSFERS.heartbeat(req.body || {}, scope);
+    if (!device) return res.status(400).json({ error: "invalid_device" });
+    return res.status(200).json({ ok: true });
+  });
+
+  app.get("/api/lan/devices", (req, res) => {
+    const device = requireDevice(req, res);
+    if (!device) return;
+    return res.json({ devices: LAN_TRANSFERS.listDevices(device) });
+  });
+
+  app.get("/api/lan/transfers", (req, res) => {
+    const device = requireDevice(req, res);
+    if (!device) return;
+    return res.json({ transfers: LAN_TRANSFERS.listTransfers(device) });
+  });
+
+  app.get("/api/lan/verifications", (req, res) => {
+    const device = requireDevice(req, res);
+    if (!device) return;
+    return res.json({ verifications: LAN_TRANSFERS.listVerifications(device) });
+  });
+
+  app.get("/api/lan/chats", (req, res) => {
+    const device = requireDevice(req, res);
+    if (!device) return;
+    return res.json({ chats: LAN_TRANSFERS.listChats(device) });
+  });
+
+  app.post("/api/lan/verifications/request", (req, res) => {
+    const sender = requireDevice(req, res);
+    if (!sender) return;
+    const result = LAN_TRANSFERS.requestVerification(sender, req.body?.recipientId);
+    if (result.error) return res.status(result.error === "device_unavailable" ? 404 : 400).json({ error: result.error });
+    return res.status(201).json(result);
+  });
+
+  app.post("/api/lan/verifications/:id/confirm", (req, res) => {
+    const device = requireDevice(req, res);
+    if (!device) return;
+    const verification = LAN_TRANSFERS.confirmVerification(req.params.id, device);
+    if (!verification) return res.status(404).json({ error: "verification_unavailable" });
+    return res.json({ verification });
+  });
+
+  app.post("/api/lan/verifications/:id/decline", (req, res) => {
+    const device = requireDevice(req, res);
+    if (!device) return;
+    if (!LAN_TRANSFERS.declineVerification(req.params.id, device)) return res.status(404).json({ error: "verification_unavailable" });
+    return res.status(204).end();
+  });
+
+  app.post("/api/lan/chats/request", (req, res) => {
+    const sender = requireDevice(req, res);
+    if (!sender) return;
+    const result = LAN_TRANSFERS.requestChat(sender, req.body?.recipientId);
+    if (result.error) return res.status(result.error === "device_unavailable" ? 404 : result.error === "verification_required" ? 409 : 400).json({ error: result.error });
+    return res.status(201).json(result);
+  });
+
+  app.post("/api/lan/chats/:id/accept", (req, res) => {
+    const recipient = requireDevice(req, res);
+    if (!recipient) return;
+    const chat = LAN_TRANSFERS.acceptChat(req.params.id, recipient);
+    if (!chat) return res.status(404).json({ error: "chat_unavailable" });
+    return res.json({ chat });
+  });
+
+  app.post("/api/lan/chats/:id/messages", (req, res) => {
+    const device = requireDevice(req, res);
+    if (!device) return;
+    const chat = LAN_TRANSFERS.sendChatMessage(req.params.id, device, req.body?.text);
+    if (!chat) return res.status(400).json({ error: "invalid_chat_message" });
+    return res.status(201).json({ chat });
+  });
+
+  app.post("/api/lan/chats/:id/end", (req, res) => {
+    const device = requireDevice(req, res);
+    if (!device) return;
+    if (!LAN_TRANSFERS.endChat(req.params.id, device)) return res.status(404).json({ error: "chat_unavailable" });
+    return res.status(204).end();
+  });
+
+  app.post("/api/lan/transfers/request", (req, res) => {
+    const sender = requireDevice(req, res);
+    if (!sender) return;
+    const { recipientId, files } = req.body || {};
+    const result = LAN_TRANSFERS.requestTransfers(sender, recipientId, files);
+    if (result.error) return res.status(result.error === "device_unavailable" ? 404 : result.error === "verification_required" ? 409 : 400).json({ error: result.error });
+    return res.status(201).json(result);
+  });
+
+  app.post("/api/lan/transfers/:id/accept", (req, res) => {
+    const recipient = requireDevice(req, res);
+    if (!recipient) return;
+    const transfer = LAN_TRANSFERS.acceptTransfer(req.params.id, recipient);
+    if (!transfer) return res.status(404).json({ error: "transfer_unavailable" });
+    return res.json({ transfer });
+  });
+
+  app.post("/api/lan/transfers/:id/decline", (req, res) => {
+    const recipient = requireDevice(req, res);
+    if (!recipient) return;
+    if (!LAN_TRANSFERS.declineTransfer(req.params.id, recipient)) return res.status(404).json({ error: "transfer_unavailable" });
+    return res.status(204).end();
+  });
+
+  app.post("/api/lan/transfers/:id/content", (req, res, next) => {
+    const sender = requireDevice(req, res);
+    if (!sender) return;
+    const transfer = LAN_TRANSFERS.beginUpload(req.params.id, sender);
+    if (!transfer) return res.status(409).json({ error: "transfer_not_accepted" });
+
+    const contentLength = Number.parseInt(req.get("content-length") || "", 10);
+    let received = 0;
+    req.on("data", (chunk) => {
+      received += chunk.length;
+      const estimatedFileBytes = Number.isFinite(contentLength) && contentLength > 0
+        ? (received / contentLength) * transfer.size
+        : received;
+      LAN_TRANSFERS.updateProgress(transfer, estimatedFileBytes);
+    });
+
+    uploadTransfer.single("file")(req, res, async (error) => {
+      if (error) {
+        LAN_TRANSFERS.failUpload(transfer);
+        return next(error);
+      }
+      if (!req.file || req.file.originalname !== transfer.name) {
+        LAN_TRANSFERS.failUpload(transfer);
+        if (req.file) await fs.promises.unlink(req.file.path).catch(() => {});
+        return res.status(400).json({ error: "invalid_transfer_file" });
+      }
+
+      const storedFile = `${transfer.id}.enc`;
+      const encryptedPath = resolveWithin(LAN_TRANSFERS.uploadDirectory, storedFile);
+      if (!encryptedPath) {
+        LAN_TRANSFERS.failUpload(transfer);
+        await fs.promises.unlink(req.file.path).catch(() => {});
+        return res.status(400).json({ error: "invalid_transfer_file" });
+      }
+
+      try {
+        await encryptFile(req.file.path, encryptedPath, SECRET_KEY);
+        await fs.promises.unlink(req.file.path).catch(() => {});
+        const completed = LAN_TRANSFERS.completeUpload(transfer, storedFile);
+        return res.status(201).json({ transfer: LAN_TRANSFERS.toClientTransfer(completed, sender) });
+      } catch (uploadError) {
+        LAN_TRANSFERS.failUpload(transfer);
+        await fs.promises.unlink(req.file.path).catch(() => {});
+        await fs.promises.unlink(encryptedPath).catch(() => {});
+        return next(uploadError);
+      }
+    });
+  });
+
+  app.get("/api/lan/transfers/:id/download", async (req, res, next) => {
+    const recipient = requireDevice(req, res, { allowQuery: true });
+    if (!recipient) return;
+    const download = LAN_TRANSFERS.claimDownload(req.params.id, recipient);
+    if (!download) return res.status(404).json({ error: "transfer_unavailable" });
+    try {
+      const sent = await decryptFile(download.filePath, res, download.name, SECRET_KEY, { disposition: "attachment" });
+      if (sent) await LAN_TRANSFERS.completeDownload(req.params.id, recipient);
+      else LAN_TRANSFERS.releaseDownload(req.params.id, recipient);
+      return;
+    } catch (error) {
+      LAN_TRANSFERS.releaseDownload(req.params.id, recipient);
+      return next(error);
+    }
+  });
+};

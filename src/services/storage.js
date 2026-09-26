@@ -110,7 +110,7 @@ async function decryptFile(inputPath, res, filename, secretKey, options = {}) {
   try {
     if (!fs.existsSync(inputPath)) {
       res.status(404).send("File not found");
-      return;
+      return false;
     }
 
     const format = readFormat(inputPath);
@@ -127,12 +127,14 @@ async function decryptFile(inputPath, res, filename, secretKey, options = {}) {
 
     const { input, decipher } = createDecryptedStream(inputPath, format, secretKey);
     await pipeline(input, decipher, res);
+    return true;
   } catch {
     if (!res.headersSent) {
       res.status(422).send("File cannot be decrypted");
     } else {
       res.destroy();
     }
+    return false;
   }
 }
 

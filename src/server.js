@@ -22,11 +22,14 @@ const {
   IS_PRODUCTION,
   PORT,
   PUBLIC_BASE_URL,
+  SHARE_USE_HTTPS,
   SESSION_MAX_AGE_MS,
   validateRuntimeConfig,
 } = require("./config");
 const { loadUsers, loadShares, saveUsers, saveShares } = require("./data/store");
 const { decryptFile, encryptFile, ensureDir } = require("./services/storage");
+const { LanTransferService } = require("./services/lanTransfers");
+const { startLanDiscovery } = require("./services/lanDiscovery");
 const { renderError, renderGuestAccess, renderPasswordPrompt } = require("./utils/html");
 const { getPreferredLanIp, getShareBaseUrl } = require("./utils/network");
 const {
@@ -41,6 +44,7 @@ const registerFileRoutes = require("./routes/files");
 const registerGuestRoutes = require("./routes/guest");
 const registerAdminRoutes = require("./routes/admin");
 const registerApiRoutes = require("./routes/api");
+const registerLanRoutes = require("./routes/lan");
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
 const FileStore = FileStoreFactory(session);
@@ -153,9 +157,14 @@ function createApp() {
   const UPLOADS_USERS = path.join(DATA_DIR, "uploads", "users");
   const UPLOADS_GUESTS = path.join(DATA_DIR, "uploads", "guests");
   const UPLOADS_TMP = path.join(DATA_DIR, "uploads", "tmp");
+  const UPLOADS_LAN = path.join(DATA_DIR, "uploads", "lan");
+  const LAN_TRANSFER_TMP = path.join(DATA_DIR, "uploads", "lan-tmp");
   ensureDir(UPLOADS_USERS);
   ensureDir(UPLOADS_GUESTS);
   ensureDir(UPLOADS_TMP);
+  ensureDir(UPLOADS_LAN);
+  ensureDir(LAN_TRANSFER_TMP);
+  const LAN_TRANSFERS = new LanTransferService({ uploadDirectory: UPLOADS_LAN });
 
   function appRedirect(res, redirectPath) {
     const base = FRONTEND_BASE_URL.replace(/\/+$/, "");
@@ -252,6 +261,7 @@ function createApp() {
     }
 
     if (changed) saveShares(SHARES);
+    LAN_TRANSFERS.cleanup();
   }
 
   cleanup();
@@ -275,6 +285,8 @@ function createApp() {
     DIST_DIR,
     FRONTEND_BASE_URL,
     HAS_DIST,
+    LAN_TRANSFERS,
+    LAN_TRANSFER_TMP,
     SECRET_KEY,
     SHARES,
     UPLOADS_GUESTS,
@@ -305,6 +317,7 @@ function createApp() {
 
   app.use(createSameOriginGuard());
   registerApiRoutes(app, sharedDependencies);
+  registerLanRoutes(app, sharedDependencies);
   registerAuthRoutes(app, sharedDependencies);
   registerFileRoutes(app, sharedDependencies);
   registerGuestRoutes(app, sharedDependencies);
@@ -328,12 +341,20 @@ function createApp() {
 
 function startServers() {
   const app = createApp();
+  const lanServicePort = HTTPS_ENABLED && SHARE_USE_HTTPS ? PORT : HTTP_PORT;
+  let discoveryStarted = false;
+  const startDiscovery = () => {
+    if (discoveryStarted) return;
+    discoveryStarted = true;
+    startLanDiscovery({ servicePort: lanServicePort });
+  };
   if (HTTPS_ENABLED) {
     const key = fs.readFileSync(CERT_KEY_PATH);
     const cert = fs.readFileSync(CERT_CRT_PATH);
     https.createServer({ cert, key }, app).listen(PORT, "0.0.0.0", () => {
       console.info(`BabyShare listening on https://localhost:${PORT}`);
       console.info(`Configured share base: ${getShareBaseUrl()}`);
+      startDiscovery();
     });
     if (HTTP_PORT !== PORT) http.createServer(app).listen(HTTP_PORT, "0.0.0.0");
     return;
@@ -342,6 +363,7 @@ function startServers() {
   app.listen(PORT, "0.0.0.0", () => {
     console.info(`BabyShare listening on http://localhost:${PORT}`);
     console.info(`LAN address: http://${getPreferredLanIp()}:${PORT}`);
+    startDiscovery();
   });
 }
 

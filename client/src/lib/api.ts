@@ -18,12 +18,14 @@ export async function uploadFormData<T>(
   path: string,
   data: FormData,
   onProgress: (percent: number) => void,
+  options: { headers?: Record<string, string> } = {},
 ): Promise<T> {
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
     request.open("POST", apiUrl(path));
     request.withCredentials = true;
     request.responseType = "text";
+    Object.entries(options.headers ?? {}).forEach(([name, value]) => request.setRequestHeader(name, value));
     request.upload.onprogress = (event) => {
       if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100));
     };
