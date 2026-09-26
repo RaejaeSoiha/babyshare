@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { DragEvent, FormEvent } from "react";
+import type { DragEvent, FormEvent, PointerEvent } from "react";
 import { useLanTransfers } from "../components/LanTransfers";
 import { apiFetch, apiUrl, uploadFormData } from "../lib/api";
 
@@ -42,6 +42,14 @@ function UploadArrow() {
   );
 }
 
+function UsersIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M16 19v-1.1c0-2-1.8-3.6-4-3.6s-4 1.6-4 3.6V19m11-1v-.7c0-1.5-1-2.8-2.5-3.3M7.5 14C6 14.5 5 15.8 5 17.3v.7M12 11.5a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm5-1.4a2.4 2.4 0 1 0 0-4.8M7 10.1a2.4 2.4 0 1 1 0-4.8" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
 function ShieldIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5.3c0 4.4 3 7.9 7 9.7 4-1.8 7-5.3 7-9.7V6l-7-3Zm-3.2 9 2.1 2.1 4.4-4.4" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.7" /></svg>;
 }
@@ -70,6 +78,10 @@ function localGuestPath(result: GuestUploadResult, action: "preview" | "download
   return result.link;
 }
 
+function avatarInitial(name: string) {
+  return name.trim().charAt(0).toUpperCase() || "G";
+}
+
 export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null);
   const nearbyInputRef = useRef<HTMLInputElement>(null);
@@ -88,7 +100,14 @@ export default function Home() {
   const [nearbySending, setNearbySending] = useState(false);
   const [chatDraft, setChatDraft] = useState("");
   const [selectedDeviceId, setSelectedDeviceId] = useState("");
+  const [isNearbyDetailOpen, setIsNearbyDetailOpen] = useState(false);
+  const [isNearbyPanelOpen, setIsNearbyPanelOpen] = useState(true);
+  const [nearbyPanelPosition, setNearbyPanelPosition] = useState<{ left: number; top: number } | null>(null);
+  const [isCompactViewport, setIsCompactViewport] = useState(() => typeof window !== "undefined" && window.innerWidth <= 680);
+  const nearbyPanelDragRef = useRef<{ height: number; left: number; offsetX: number; offsetY: number; pointerId: number; top: number; width: number } | null>(null);
+  const nearbyPanelWasDraggedRef = useRef(false);
   const {
+    acceptChat,
     chats,
     confirmVerification,
     declineVerification,
@@ -111,6 +130,22 @@ export default function Home() {
       .finally(() => setAccountChecked(true));
   }, []);
 
+  useEffect(() => {
+    if (!isNearbyDetailOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsNearbyDetailOpen(false);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [isNearbyDetailOpen]);
+
+  useEffect(() => {
+    const updateViewport = () => setIsCompactViewport(window.innerWidth <= 680);
+    updateViewport();
+    window.addEventListener("resize", updateViewport);
+    return () => window.removeEventListener("resize", updateViewport);
+  }, []);
+
   const isSignedIn = Boolean(account);
   const guestPreviewPath = guestResult ? localGuestPath(guestResult, "preview") : "";
   const guestDownloadPath = guestResult ? localGuestPath(guestResult, "download") : "";
@@ -120,6 +155,7 @@ export default function Home() {
   const selectedChat = chats.find((chat) => chat.peerId === selectedDeviceId) ?? null;
   const activeOutgoingTransfers = transfers.filter((transfer) => transfer.direction === "outgoing"
     && ["pending", "accepted", "receiving", "ready"].includes(transfer.status)).slice(0, 3);
+  const incomingChats = chats.filter((chat) => chat.direction === "incoming" && chat.status === "pending").slice(0, 3);
 
   const selectFiles = (nextFiles: FileList | File[]) => {
     const selected = Array.from(nextFiles);
@@ -221,9 +257,28 @@ export default function Home() {
     setNearbyError("");
     setChatDraft("");
     if (nearbyInputRef.current) nearbyInputRef.current.value = "";
-    const hasExistingSession = verifications.some((verification) => verification.peerId === deviceId)
-      || chats.some((chat) => chat.peerId === deviceId && chat.status === "active");
-    if (!hasExistingSession) void startVerification(deviceId);
+  };
+
+  const openNearbyDetail = (deviceId: string) => {
+    selectNearbyDevice(deviceId);
+    setIsNearbyDetailOpen(true);
+  };
+
+  const startNearbyFileShare = async (deviceId: string) => {
+    selectNearbyDevice(deviceId);
+    setIsNearbyDetailOpen(true);
+    if (verifications.some((verification) => verification.peerId === deviceId)) return;
+    await startVerification(deviceId);
+  };
+
+  const startNearbyChat = async (deviceId: string) => {
+    openNearbyDetail(deviceId);
+    setNearbyError("");
+    try {
+      await requestChat(deviceId);
+    } catch {
+      setNearbyError("Could not start the private chat. Please try again.");
+    }
   };
 
   const chooseNearbyFiles = (nextFiles: FileList | File[]) => {
@@ -301,11 +356,8 @@ export default function Home() {
     setNearbyError("");
     try {
       await requestChat(selectedDevice.id);
-    } catch (chatError) {
-      const code = chatError instanceof Error ? chatError.message : "";
-      setNearbyError(code === "verification_required"
-        ? "Verify this device before starting a chat."
-        : "Could not start the private chat. Please try again.");
+    } catch {
+      setNearbyError("Could not start the private chat. Please try again.");
     }
   };
 
@@ -332,6 +384,60 @@ export default function Home() {
     }
   };
 
+  const declineIncomingChat = async (chatId: string) => {
+    try {
+      await endChat(chatId);
+    } catch {
+      setNearbyError("Could not decline the chat request. Please try again.");
+    }
+  };
+
+  const startMovingNearbyPanel = (event: PointerEvent<HTMLElement>) => {
+    if (event.button !== 0 || isCompactViewport) return;
+    const panel = event.currentTarget.closest(".nearby-users-panel, .nearby-users-tab") as HTMLElement | null;
+    if (!panel) return;
+    const rect = panel.getBoundingClientRect();
+    nearbyPanelDragRef.current = {
+      height: rect.height,
+      left: rect.left,
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
+      pointerId: event.pointerId,
+      top: rect.top,
+      width: rect.width,
+    };
+    nearbyPanelWasDraggedRef.current = false;
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const moveNearbyPanel = (event: PointerEvent<HTMLElement>) => {
+    const drag = nearbyPanelDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const left = Math.round(Math.min(Math.max(12, event.clientX - drag.offsetX), window.innerWidth - drag.width - 12));
+    const top = Math.round(Math.min(Math.max(12, event.clientY - drag.offsetY), window.innerHeight - drag.height - 12));
+    if (Math.abs(left - drag.left) > 3 || Math.abs(top - drag.top) > 3) nearbyPanelWasDraggedRef.current = true;
+    setNearbyPanelPosition({ left, top });
+  };
+
+  const stopMovingNearbyPanel = (event: PointerEvent<HTMLElement>) => {
+    const drag = nearbyPanelDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    nearbyPanelDragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+
+  const restoreNearbyPanel = () => {
+    if (nearbyPanelWasDraggedRef.current) {
+      nearbyPanelWasDraggedRef.current = false;
+      return;
+    }
+    setIsNearbyPanelOpen(true);
+  };
+
+  const nearbyPanelStyle = nearbyPanelPosition && !isCompactViewport
+    ? { left: nearbyPanelPosition.left, right: "auto", top: nearbyPanelPosition.top, transform: "none" }
+    : undefined;
+
   return (
     <div className="home-page">
       <header className="site-header">
@@ -352,13 +458,35 @@ export default function Home() {
         <section className="home-hero" aria-labelledby="home-title">
           <p className="hero-kicker">Private file sharing</p>
           <h1 id="home-title">Baby<span>Share</span></h1>
-          <p className="home-tagline">Share files. Simply and securely.</p>
-          <p className="home-subcopy">Fast, private file sharing across your network.</p>
         </section>
+
+        {!hasUploadResult && <section className="feature-indicators" aria-label="BabyShare features">
+          <article>
+            <span className="indicator-icon private"><ShieldIcon /></span>
+            <div><h2>Private Sharing</h2><p>Your files stay on your network.</p></div>
+          </article>
+          <article>
+            <span className="indicator-icon fast"><SpeedIcon /></span>
+            <div><h2>Fast Transfers</h2><p>Quick and reliable.</p></div>
+          </article>
+          <article>
+            <span className="indicator-icon expiry"><ClockIcon /></span>
+            <div><h2>Expiring Links</h2><p>Control how long files last.</p></div>
+          </article>
+        </section>}
 
         <section className="upload-section" aria-label="File upload">
           {!hasUploadResult ? (
             <>
+              <div className="home-action-grid">
+              <section className="upload-share-card" aria-labelledby="upload-share-title">
+                <div className="action-card-heading">
+                  <span className="action-card-icon"><UploadArrow /></span>
+                  <div>
+                    <h2 id="upload-share-title">Upload &amp; Share Link</h2>
+                    <p>Create a secure share link for anyone on your network.</p>
+                  </div>
+                </div>
               <div
                 className={`upload-dropzone${dragging ? " is-dragging" : ""}`}
                 onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
@@ -387,7 +515,7 @@ export default function Home() {
                   aria-label={isSignedIn ? "Choose files to upload" : "Choose a file to upload"}
                 />
                 <div className="upload-actions">
-                  <button className="browse-button" type="button" onClick={() => inputRef.current?.click()} disabled={loading}>Browse files</button>
+                  <button className="browse-button" type="button" onClick={() => inputRef.current?.click()} disabled={loading}>{isSignedIn ? "Choose files" : "Choose file"}</button>
                   <button className="upload-button" type="button" onClick={onUpload} disabled={loading || !accountChecked || files.length === 0} aria-busy={loading}>
                     {loading ? `Uploading ${progress}%` : "Upload Files"}
                   </button>
@@ -399,131 +527,116 @@ export default function Home() {
               {!accountChecked && <p className="upload-hint" aria-live="polite">Checking your session…</p>}
               {loading && <div className="upload-progress home-progress" aria-live="polite"><progress max="100" value={progress} /><span>{progress}%</span></div>}
               {error && <p className="error home-error" role="alert">{error}</p>}
+              </section>
 
-              <section className="nearby-devices" aria-labelledby="nearby-devices-title">
-                <div className="nearby-devices-heading">
-                  <div>
-                    <p className="nearby-kicker">LAN only</p>
-                    <h2 id="nearby-devices-title">Nearby Devices</h2>
-                  </div>
-                  <span className="nearby-status">Secure verify</span>
-                </div>
-                <p className="nearby-description">Active BabyShare devices on this network appear at left. Select one to pair automatically, then chat or send files from the right panel.</p>
-                {lanError && <p className="error nearby-error" role="alert">{lanError}</p>}
-                <div className="nearby-airdrop-layout">
-                  <div className="nearby-device-panel">
-                    <p className="nearby-panel-label">Nearby on this network</p>
-                    <div className="nearby-device-list">
-                      {devices.length === 0 ? (
-                        <p className="nearby-empty">No other BabyShare devices are active yet.</p>
-                      ) : devices.map((device) => (
-                        <button
-                          type="button"
-                          className={`nearby-device${selectedDeviceId === device.id ? " is-selected" : ""}`}
-                          key={device.id}
-                          onClick={() => selectNearbyDevice(device.id)}
-                          aria-pressed={selectedDeviceId === device.id}
-                        >
-                          <span className="nearby-device-dot" aria-hidden="true" />
-                          <span><strong>{device.name}</strong><small>{device.platform} · Same network</small></span>
-                          <span className="nearby-device-action">Open</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="nearby-chat-panel">
-                    {!selectedDevice ? <p className="nearby-empty">Select a nearby device to open its private chat panel.</p> : (
-                  <div className="nearby-compose">
-                    {selectedChat?.status === "active" ? (
-                      <section className="private-chat" aria-label={`Private chat with ${selectedDevice.name}`}>
-                        <div className="private-chat-heading">
-                          <div><p className="nearby-kicker">Private chat</p><strong>{selectedDevice.name}</strong></div>
-                          <button type="button" className="lan-decline" onClick={() => void endSelectedChat()}>End chat</button>
+              </div>
+              {isNearbyDetailOpen && selectedDevice && (
+                <div className="nearby-detail-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setIsNearbyDetailOpen(false); }}>
+                  <section className="nearby-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="nearby-detail-title">
+                    <header className="nearby-detail-header">
+                      <div className="nearby-detail-user">
+                        <span className="nearby-user-avatar is-large" aria-hidden="true">{avatarInitial(selectedDevice.displayName)}</span>
+                        <div>
+                          <p className="nearby-kicker">Nearby user</p>
+                          <h2 id="nearby-detail-title">{selectedDevice.displayName}</h2>
+                          <p>{selectedDevice.displayName === "Guest" ? `Guest • ${selectedDevice.deviceName}` : selectedDevice.deviceName} <span className="nearby-detail-online"><span aria-hidden="true" />Online</span></p>
                         </div>
-                        <div className="private-chat-messages" aria-live="polite">
-                          {selectedChat.messages.length === 0 ? <p>No messages yet. Ending this chat deletes everything.</p> : selectedChat.messages.map((message) => (
-                            <div className={`chat-message${message.mine ? " is-mine" : ""}`} key={message.id}>
-                              <span>{message.text}</span>
-                              <time dateTime={new Date(message.sentAt).toISOString()}>{new Date(message.sentAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time>
+                      </div>
+                      <button type="button" className="nearby-detail-close" onClick={() => setIsNearbyDetailOpen(false)} aria-label="Close nearby user details">×</button>
+                    </header>
+
+                    <div className="nearby-detail-body">
+                      {selectedChat?.status === "active" ? (
+                        <section className="private-chat" aria-label={`Private chat with ${selectedDevice.displayName}`}>
+                          <div className="private-chat-heading">
+                            <div><p className="nearby-kicker">Private chat</p><strong>{selectedDevice.displayName}</strong></div>
+                            <button type="button" className="lan-decline" onClick={() => void endSelectedChat()}>End chat</button>
+                          </div>
+                          <div className="private-chat-messages" aria-live="polite">
+                            {selectedChat.messages.length === 0 ? <p>No messages yet. Ending this chat deletes everything.</p> : selectedChat.messages.map((message) => (
+                              <div className={`chat-message${message.mine ? " is-mine" : ""}`} key={message.id}>
+                                <span>{message.text}</span>
+                                <time dateTime={new Date(message.sentAt).toISOString()}>{new Date(message.sentAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time>
+                              </div>
+                            ))}
+                          </div>
+                          <form className="private-chat-compose" onSubmit={submitChatMessage}>
+                            <label className="visually-hidden" htmlFor="private-chat-message">Message</label>
+                            <input id="private-chat-message" value={chatDraft} maxLength={1000} onChange={(event) => setChatDraft(event.target.value)} placeholder="Write a message" autoComplete="off" />
+                            <button type="submit" className="nearby-send" disabled={!chatDraft.trim()}>Send</button>
+                          </form>
+                          <p className="nearby-privacy-note">End chat to delete this conversation for both devices.</p>
+                        </section>
+                      ) : (
+                        <div className="nearby-compose">
+                          {!selectedVerification ? (
+                            <>
+                              <p>Choose how you want to connect with <strong>{selectedDevice.displayName}</strong>.</p>
+                              <div className="nearby-compose-actions">
+                                <button type="button" className="nearby-send" onClick={() => void startPrivateChat()}>Start private chat</button>
+                                <button type="button" className="nearby-choose" onClick={() => void startVerification()}>Verify to send files</button>
+                              </div>
+                            </>
+                          ) : selectedVerification.status === "pending" ? (
+                            <>
+                              <p>Compare this two-digit code with <strong>{selectedDevice.displayName}</strong> before sending files.</p>
+                              <output className="verification-code">{selectedVerification.code}</output>
+                              <div className="nearby-compose-actions">
+                                {selectedVerification.yourConfirmed ? (
+                                  <span className="nearby-waiting">Waiting for confirmation.</span>
+                                ) : <button type="button" className="nearby-send" onClick={() => void confirmSelectedVerification()}>Code matches</button>}
+                                {!selectedChat && <button type="button" className="nearby-choose" onClick={() => void startPrivateChat()}>Start private chat</button>}
+                                <button type="button" className="nearby-choose" onClick={() => void cancelSelectedVerification()}>Cancel</button>
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <p><strong>{selectedDevice.displayName}</strong> is verified for this file transfer.</p>
+                              <input
+                                ref={nearbyInputRef}
+                                className="visually-hidden"
+                                type="file"
+                                multiple
+                                onChange={(event) => event.target.files && chooseNearbyFiles(event.target.files)}
+                                aria-label="Choose files for nearby user"
+                              />
+                              <div className="nearby-compose-actions">
+                                <button type="button" className="nearby-choose" onClick={() => nearbyInputRef.current?.click()}>Choose files</button>
+                                <button type="button" className="nearby-send" disabled={nearbyFiles.length === 0 || nearbySending} onClick={() => void sendToNearbyDevice()}>
+                                  {nearbySending ? "Requesting…" : nearbyFiles.length ? `Send to ${selectedDevice.displayName}` : "Send files"}
+                                </button>
+                                <button type="button" className="nearby-choose" onClick={() => void cancelSelectedVerification()}>Cancel</button>
+                              </div>
+                              {nearbyFiles.length > 0 && <p className="nearby-files" aria-live="polite">{nearbyFiles.map((file) => `${file.name} (${formatFileSize(file.size)})`).join(" · ")}</p>}
+                            </>
+                          )}
+                          {selectedChat?.status === "pending" && (
+                            <div className="private-chat-pending">
+                              <p>Private chat request sent. Waiting for {selectedDevice.displayName} to accept.</p>
+                              <button type="button" className="lan-decline" onClick={() => void endSelectedChat()}>Cancel chat request</button>
+                            </div>
+                          )}
+                          <p className="nearby-privacy-note">No chat or transfer history is saved.</p>
+                        </div>
+                      )}
+                      {activeOutgoingTransfers.length > 0 && (
+                        <div className="nearby-transfer-list" aria-live="polite">
+                          {activeOutgoingTransfers.map((transfer) => (
+                            <div className="nearby-transfer" key={transfer.id}>
+                              <div><strong>{transfer.name}</strong><span>To {transfer.peerName}</span></div>
+                              <div className="nearby-transfer-status">
+                                <span>{transfer.status === "pending" ? "Awaiting acceptance" : transfer.status === "accepted" ? "Approved — sending…" : transfer.status === "receiving" ? `Sending ${transfer.progress}%` : "Ready to download once"}</span>
+                                {(transfer.status === "receiving" || transfer.status === "ready") && <progress max="100" value={transfer.progress} />}
+                              </div>
                             </div>
                           ))}
                         </div>
-                        <form className="private-chat-compose" onSubmit={submitChatMessage}>
-                          <label className="visually-hidden" htmlFor="private-chat-message">Message</label>
-                          <input id="private-chat-message" value={chatDraft} maxLength={1000} onChange={(event) => setChatDraft(event.target.value)} placeholder="Write a message" autoComplete="off" />
-                          <button type="submit" className="nearby-send" disabled={!chatDraft.trim()}>Send</button>
-                        </form>
-                        <p className="nearby-privacy-note">End chat to delete this conversation for both devices.</p>
-                      </section>
-                    ) : (
-                      <>
-                        {!selectedVerification ? (
-                          <>
-                            <p>Preparing a two-digit pairing code for <strong>{selectedDevice.name}</strong>.</p>
-                            <span className="nearby-waiting">Pairing starts automatically when you select a device.</span>
-                          </>
-                        ) : selectedVerification.status === "pending" ? (
-                          <>
-                            <p>Compare this two-digit pairing code with <strong>{selectedDevice.name}</strong>. It was created automatically and is deleted if declined or after use.</p>
-                            <output className="verification-code">{selectedVerification.code}</output>
-                            <div className="nearby-compose-actions">
-                              {selectedVerification.yourConfirmed ? (
-                                <span className="nearby-waiting">Waiting for your friend to confirm.</span>
-                              ) : <button type="button" className="nearby-send" onClick={() => void confirmSelectedVerification()}>Code matches</button>}
-                              <button type="button" className="nearby-choose" onClick={() => void cancelSelectedVerification()}>Cancel verification</button>
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <p><strong>{selectedDevice.name}</strong> is verified for the next transfer or private chat.</p>
-                            <input
-                              ref={nearbyInputRef}
-                              className="visually-hidden"
-                              type="file"
-                              multiple
-                              onChange={(event) => event.target.files && chooseNearbyFiles(event.target.files)}
-                              aria-label="Choose files for nearby device"
-                            />
-                            <div className="nearby-compose-actions">
-                              <button type="button" className="nearby-choose" onClick={() => nearbyInputRef.current?.click()}>Choose files</button>
-                              <button type="button" className="nearby-send" disabled={nearbyFiles.length === 0 || nearbySending} onClick={() => void sendToNearbyDevice()}>
-                                {nearbySending ? "Requesting…" : nearbyFiles.length ? `Send to ${selectedDevice.name}` : "Send files"}
-                              </button>
-                              {!selectedChat && <button type="button" className="nearby-choose" onClick={() => void startPrivateChat()}>Start private chat</button>}
-                              <button type="button" className="nearby-choose" onClick={() => void cancelSelectedVerification()}>Cancel verification</button>
-                            </div>
-                            {nearbyFiles.length > 0 && <p className="nearby-files" aria-live="polite">{nearbyFiles.map((file) => `${file.name} (${formatFileSize(file.size)})`).join(" · ")}</p>}
-                          </>
-                        )}
-                        {selectedChat?.status === "pending" && (
-                          <div className="private-chat-pending">
-                            <p>Private chat request sent. Waiting for {selectedDevice.name} to accept.</p>
-                            <button type="button" className="lan-decline" onClick={() => void endSelectedChat()}>Cancel chat request</button>
-                          </div>
-                        )}
-                        <p className="nearby-privacy-note">No chat or transfer history is saved.</p>
-                      </>
-                    )}
-                    {nearbyError && <p className="error nearby-error" role="alert">{nearbyError}</p>}
-                  </div>
-                    )}
-                  </div>
+                      )}
+                      {nearbyError && <p className="error nearby-error" role="alert">{nearbyError}</p>}
+                    </div>
+                  </section>
                 </div>
-
-                {activeOutgoingTransfers.length > 0 && (
-                  <div className="nearby-transfer-list" aria-live="polite">
-                    {activeOutgoingTransfers.map((transfer) => (
-                      <div className="nearby-transfer" key={transfer.id}>
-                        <div><strong>{transfer.name}</strong><span>To {transfer.peerName}</span></div>
-                        <div className="nearby-transfer-status">
-                          <span>{transfer.status === "pending" ? "Awaiting acceptance" : transfer.status === "accepted" ? "Approved — sending…" : transfer.status === "receiving" ? `Sending ${transfer.progress}%` : "Ready to download once"}</span>
-                          {(transfer.status === "receiving" || transfer.status === "ready") && <progress max="100" value={transfer.progress} />}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </section>
+              )}
             </>
           ) : guestResult ? (
             <div className="upload-success-card" aria-live="polite">
@@ -549,21 +662,83 @@ export default function Home() {
           )}
         </section>
 
-        {!hasUploadResult && <section className="feature-indicators" aria-label="BabyShare features">
-          <article>
-            <span className="indicator-icon private"><ShieldIcon /></span>
-            <div><h2>Private Sharing</h2><p>Your files stay on your network.</p></div>
-          </article>
-          <article>
-            <span className="indicator-icon fast"><SpeedIcon /></span>
-            <div><h2>Fast Transfers</h2><p>Quick and reliable.</p></div>
-          </article>
-          <article>
-            <span className="indicator-icon expiry"><ClockIcon /></span>
-            <div><h2>Expiring Links</h2><p>Control how long files last.</p></div>
-          </article>
-        </section>}
       </main>
+
+      {!hasUploadResult && (isNearbyPanelOpen ? (
+        <aside className="nearby-users-panel" style={nearbyPanelStyle} aria-label="Nearby Users">
+          <header className="nearby-users-panel-header">
+            <div
+              className="nearby-users-panel-title"
+              onPointerDown={startMovingNearbyPanel}
+              onPointerMove={moveNearbyPanel}
+              onPointerUp={stopMovingNearbyPanel}
+              onPointerCancel={stopMovingNearbyPanel}
+              title="Drag to move Nearby Users"
+            >
+              <span className="nearby-users-panel-icon"><UsersIcon /></span>
+              <div><p className="nearby-kicker">LAN only</p><h2>Nearby Users</h2></div>
+            </div>
+            <button type="button" className="nearby-users-panel-toggle" onClick={() => setIsNearbyPanelOpen(false)} aria-label="Minimize Nearby Users">−</button>
+          </header>
+          {lanError && <p className="error nearby-panel-error" role="alert">{lanError}</p>}
+          <div className="nearby-users-panel-list" aria-live="polite">
+            {devices.length === 0 ? (
+              <p className="nearby-empty">No other users online.</p>
+            ) : devices.map((device) => (
+              <article className="nearby-panel-user" key={device.id}>
+                <button
+                  type="button"
+                  className="nearby-panel-user-select"
+                  onClick={() => openNearbyDetail(device.id)}
+                  aria-label={`Open sharing options for ${device.displayName} on ${device.deviceName}`}
+                >
+                  <span className="nearby-user-avatar" aria-hidden="true">{avatarInitial(device.displayName)}</span>
+                  <span className="nearby-device-details">
+                    <strong>{device.displayName}</strong>
+                    <small>{device.displayName === "Guest" ? `Guest • ${device.deviceName}` : device.deviceName}</small>
+                  </span>
+                  <span className="nearby-device-online"><span aria-hidden="true" />Online</span>
+                </button>
+                <div className="nearby-panel-user-actions">
+                  <button type="button" onClick={() => void startNearbyFileShare(device.id)}>Send</button>
+                  <button type="button" onClick={() => void startNearbyChat(device.id)}>Chat</button>
+                </div>
+              </article>
+            ))}
+          </div>
+          {incomingChats.length > 0 && (
+            <section className="nearby-panel-requests" aria-label="Incoming private chat requests">
+              <p className="nearby-panel-section-title">Chat requests</p>
+              {incomingChats.map((chat) => (
+                <article className="nearby-panel-request" key={chat.id}>
+                  <p><strong>{chat.peerName}</strong> wants to chat.</p>
+                  <div>
+                    <button type="button" className="lan-accept" onClick={() => void acceptChat(chat.id)}>Accept</button>
+                    <button type="button" className="lan-decline" onClick={() => void declineIncomingChat(chat.id)}>Decline</button>
+                  </div>
+                </article>
+              ))}
+            </section>
+          )}
+          {nearbyError && <p className="error nearby-panel-error" role="alert">{nearbyError}</p>}
+        </aside>
+      ) : (
+        <button
+          type="button"
+          className="nearby-users-tab"
+          style={nearbyPanelStyle}
+          onClick={restoreNearbyPanel}
+          onPointerDown={startMovingNearbyPanel}
+          onPointerMove={moveNearbyPanel}
+          onPointerUp={stopMovingNearbyPanel}
+          onPointerCancel={stopMovingNearbyPanel}
+          aria-label="Open Nearby Users"
+        >
+          <UsersIcon />
+          <span>Nearby Users</span>
+          {incomingChats.length > 0 && <span className="nearby-users-tab-alert" aria-label={`${incomingChats.length} chat request${incomingChats.length === 1 ? "" : "s"}`} />}
+        </button>
+      ))}
 
       <footer className="site-footer">Private sharing · Password protection available · Expiring links</footer>
     </div>

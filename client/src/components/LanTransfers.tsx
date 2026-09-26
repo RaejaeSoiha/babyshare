@@ -2,7 +2,13 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import type { ReactNode } from "react";
 import { apiFetch, apiUrl, uploadFormData } from "../lib/api";
 
-export type LanDevice = { id: string; name: string; platform: string };
+export type LanDevice = {
+  deviceName: string;
+  displayName: string;
+  id: string;
+  online: true;
+  platform: string;
+};
 export type LanVerification = {
   code: string;
   createdAt: number;

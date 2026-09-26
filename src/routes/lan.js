@@ -50,7 +50,9 @@ module.exports = function registerLanRoutes(app, deps) {
   app.post("/api/lan/presence", (req, res) => {
     const scope = requireLanRequest(req, res);
     if (!scope) return;
-    const device = LAN_TRANSFERS.heartbeat(req.body || {}, scope);
+    // Session identity comes only from the server-side session, never from the
+    // browser's presence payload.
+    const device = LAN_TRANSFERS.heartbeat(req.body || {}, scope, req.session?.user);
     if (!device) return res.status(400).json({ error: "invalid_device" });
     return res.status(200).json({ ok: true });
   });
@@ -106,7 +108,7 @@ module.exports = function registerLanRoutes(app, deps) {
     const sender = requireDevice(req, res);
     if (!sender) return;
     const result = LAN_TRANSFERS.requestChat(sender, req.body?.recipientId);
-    if (result.error) return res.status(result.error === "device_unavailable" ? 404 : result.error === "verification_required" ? 409 : 400).json({ error: result.error });
+    if (result.error) return res.status(result.error === "device_unavailable" ? 404 : 400).json({ error: result.error });
     return res.status(201).json(result);
   });
 

@@ -58,7 +58,7 @@ class LanTransferService {
     fs.mkdirSync(uploadDirectory, { recursive: true });
   }
 
-  heartbeat({ deviceId, deviceToken, platform }, scope) {
+  heartbeat({ deviceId, deviceToken, platform }, scope, user) {
     if (!isDeviceId(deviceId) || !isDeviceToken(deviceToken)) return null;
     const now = Date.now();
     const existing = this.devices.get(deviceId);
@@ -66,9 +66,12 @@ class LanTransferService {
     if (existing && existing.tokenHash !== tokenHash) return null;
 
     const normalizedPlatform = cleanName(platform, "Browser");
+    const displayName = cleanName(user, "Guest");
     const device = {
+      deviceName: `${normalizedPlatform} device`,
+      displayName,
       id: deviceId,
-      name: `${normalizedPlatform} device`,
+      name: displayName,
       platform: normalizedPlatform,
       scope,
       tokenHash,
@@ -90,7 +93,13 @@ class LanTransferService {
     return [...this.devices.values()]
       .filter((candidate) => candidate.id !== device.id && candidate.scope === device.scope && candidate.updatedAt + DEVICE_TTL_MS >= Date.now())
       .sort((left, right) => right.updatedAt - left.updatedAt || left.name.localeCompare(right.name))
-      .map(({ id, name, platform }) => ({ id, name, platform }));
+      .map(({ deviceName, displayName, id, platform }) => ({
+        deviceName,
+        displayName,
+        id,
+        online: true,
+        platform,
+      }));
   }
 
   requestVerification(sender, recipientId) {
@@ -164,8 +173,6 @@ class LanTransferService {
     if (!recipient || recipient.scope !== sender.scope || recipient.updatedAt + DEVICE_TTL_MS < Date.now()) {
       return { error: "device_unavailable" };
     }
-    if (!this.verifiedPair(sender, recipient)) return { error: "verification_required" };
-
     const existing = [...this.chats.values()].find((chat) => (chat.status === "pending" || chat.status === "active")
       && ((chat.senderId === sender.id && chat.recipientId === recipient.id)
         || (chat.senderId === recipient.id && chat.recipientId === sender.id)));
@@ -203,11 +210,6 @@ class LanTransferService {
   acceptChat(id, recipient) {
     const chat = this.getChatForDevice(id, recipient);
     if (!chat || chat.recipientId !== recipient.id || chat.status !== "pending") return null;
-    const sender = this.devices.get(chat.senderId);
-    if (!sender || !this.verifiedPair(sender, recipient)) {
-      this.chats.delete(id);
-      return null;
-    }
     chat.status = "active";
     chat.updatedAt = Date.now();
     return this.toClientChat(chat, recipient);

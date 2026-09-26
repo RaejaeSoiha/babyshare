@@ -52,15 +52,19 @@ npm run build
 npm audit --omit=dev
 ```
 
-## Nearby Devices and direct transfers
+## Nearby Users and direct transfers
 
 BabyShare discovers active browser devices connected to the same BabyShare LAN
 hub without requiring either person to log in. Open the hub's LAN URL on
-Windows, macOS, Linux, Android, or iOS; a device appears in **Nearby Devices**
-while its BabyShare page is open. Before files can be selected, one person starts
-secure verification and both people compare the same two-digit code by phone or
-in person, then each confirms that it matches. This protects against choosing
-the wrong nearby device without creating a contact list or durable history.
+Windows, macOS, Linux, Android, or iOS; a device appears in **Nearby Users**
+while its BabyShare page is open. The compact live list shows a signed-in
+user's display name and device type, or **Guest** with the device type for an
+anonymous session. It exposes no IP addresses. Chat can start immediately: the
+recipient must accept it, and either person can end it. Before sending direct
+files, one person can start optional secure verification and both people compare
+the same two-digit code by phone or in person, then each confirms that it
+matches. This protects against choosing the wrong nearby device without creating
+a contact list or durable history.
 
 After both people confirm the code, the sender can choose up to 20 files. The
 verification is consumed as soon as a transfer request is created, so a fresh
@@ -74,11 +78,12 @@ available only from the in-app notification, are not given public links, and are
 deleted from BabyShare's encrypted transfer storage immediately after a successful
 download. A received transfer can be downloaded once.
 
-After verification, either person can request a private chat; the other person
-must accept it. Chat messages exist only while that chat is active and only in
-server memory. When either person selects **End chat**, the entire conversation
-is deleted immediately for both devices. Declined chat requests are also deleted
-immediately, and inactive chats expire automatically after 30 minutes. Device presence,
+Either nearby device can request a private chat; the other person must accept it.
+Chat messages exist only while that chat is active and only in server memory.
+When either person selects **End chat**, the entire conversation is deleted
+immediately for both devices. Direct file transfers require the optional mutual
+two-digit verification. Declined chat requests are also deleted immediately, and
+inactive chats expire automatically after 30 minutes. Device presence,
 verification codes, and transfer metadata are likewise memory-only. Declined
 verification and transfer requests are deleted immediately; verification codes
 expire after five minutes; and a successful one-time download deletes both the
@@ -89,7 +94,7 @@ The Node host emits low-TTL LAN multicast service announcements on
 Browsers cannot send UDP/mDNS packets, so the presence API is the compatible
 fallback used by desktop and mobile browsers. If multicast is blocked by guest
 Wi-Fi, a VPN, or a mobile hotspot, open the known BabyShare LAN URL directly on
-each device; Nearby Devices still works normally once they are on that hub.
+each device; Nearby Users still works normally once they are on that hub.
 
 ### LAN transfer security
 
@@ -101,8 +106,10 @@ each device; Nearby Devices still works normally once they are on that hub.
 - Both people must confirm the same temporary code before a transfer request is
   allowed. The code is scoped to the two current LAN devices, expires after five
   minutes, and is deleted when used or declined.
-- Private chat requests use the same verified device pair. Either person can
-  end a chat, immediately removing its messages from the server and both UIs.
+- Private chats require same-LAN device credentials and recipient acceptance.
+  Direct file transfers require optional mutual two-digit verification. Either
+  person can end a chat, immediately removing its messages from the server and
+  both UIs.
 - A recipient must accept before a browser is allowed to upload file content.
   Files are encrypted at rest, are never exposed as guest/shareable links, and
   expire automatically after 24 hours if they are not downloaded first.

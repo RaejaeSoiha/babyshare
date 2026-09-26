@@ -112,10 +112,10 @@ function lanHeaders(identity, json = true) {
   };
 }
 
-async function announceLanDevice(identity) {
+async function announceLanDevice(identity, sessionCookie) {
   const response = await fetchApp("/api/lan/presence", {
     body: JSON.stringify(identity),
-    headers: { "Content-Type": "application/json", Origin: baseUrl },
+    headers: { "Content-Type": "application/json", ...(sessionCookie ? { Cookie: sessionCookie } : {}), Origin: baseUrl },
     method: "POST",
   });
   assert.equal(response.status, 200);
@@ -193,7 +193,7 @@ test("registration blocks traversal usernames and state changes require a same-o
   assert.equal(crossOrigin.status, 403);
 });
 
-test("LAN transfers require mutual temporary-code verification and are erased after download", async () => {
+test("LAN chat is available immediately while direct transfers require verification and are erased after download", async () => {
   const sender = lanIdentity();
   const recipient = lanIdentity();
   await announceLanDevice(sender);
@@ -201,44 +201,15 @@ test("LAN transfers require mutual temporary-code verification and are erased af
 
   const devices = await fetchApp("/api/lan/devices", { headers: lanHeaders(sender, false) });
   assert.equal(devices.status, 200);
-  assert.ok((await devices.json()).devices.some((device) => device.id === recipient.deviceId && device.user === undefined));
-
-  const beforeVerification = await fetchApp("/api/lan/transfers/request", {
-    body: JSON.stringify({ files: [{ name: "nearby.txt", size: 20 }], recipientId: recipient.deviceId }),
-    headers: lanHeaders(sender),
-    method: "POST",
+  const listedRecipient = (await devices.json()).devices.find((device) => device.id === recipient.deviceId);
+  assert.deepEqual(listedRecipient, {
+    deviceName: "Test browser device",
+    displayName: "Guest",
+    id: recipient.deviceId,
+    online: true,
+    platform: "Test browser",
   });
-  assert.equal(beforeVerification.status, 409);
-
-  const verificationRequest = await fetchApp("/api/lan/verifications/request", {
-    body: JSON.stringify({ recipientId: recipient.deviceId }),
-    headers: lanHeaders(sender),
-    method: "POST",
-  });
-  assert.equal(verificationRequest.status, 201);
-  const senderVerification = (await verificationRequest.json()).verification;
-  assert.match(senderVerification.code, /^\d{2}$/);
-
-  const recipientVerifications = await fetchApp("/api/lan/verifications", { headers: lanHeaders(recipient, false) });
-  assert.equal(recipientVerifications.status, 200);
-  const recipientVerification = (await recipientVerifications.json()).verifications.find((item) => item.id === senderVerification.id);
-  assert.equal(recipientVerification.code, senderVerification.code);
-
-  const senderConfirmed = await fetchApp(`/api/lan/verifications/${senderVerification.id}/confirm`, {
-    body: JSON.stringify({}),
-    headers: lanHeaders(sender),
-    method: "POST",
-  });
-  assert.equal(senderConfirmed.status, 200);
-  assert.equal((await senderConfirmed.json()).verification.status, "pending");
-
-  const recipientConfirmed = await fetchApp(`/api/lan/verifications/${senderVerification.id}/confirm`, {
-    body: JSON.stringify({}),
-    headers: lanHeaders(recipient),
-    method: "POST",
-  });
-  assert.equal(recipientConfirmed.status, 200);
-  assert.equal((await recipientConfirmed.json()).verification.status, "verified");
+  assert.equal(Object.hasOwn(listedRecipient, "ip"), false);
 
   const chatRequested = await fetchApp("/api/lan/chats/request", {
     body: JSON.stringify({ recipientId: recipient.deviceId }),
@@ -276,6 +247,43 @@ test("LAN transfers require mutual temporary-code verification and are erased af
   assert.equal(chatEnded.status, 204);
   const erasedChats = await fetchApp("/api/lan/chats", { headers: lanHeaders(sender, false) });
   assert.deepEqual((await erasedChats.json()).chats, []);
+
+  const beforeVerification = await fetchApp("/api/lan/transfers/request", {
+    body: JSON.stringify({ files: [{ name: "nearby.txt", size: 20 }], recipientId: recipient.deviceId }),
+    headers: lanHeaders(sender),
+    method: "POST",
+  });
+  assert.equal(beforeVerification.status, 409);
+
+  const verificationRequest = await fetchApp("/api/lan/verifications/request", {
+    body: JSON.stringify({ recipientId: recipient.deviceId }),
+    headers: lanHeaders(sender),
+    method: "POST",
+  });
+  assert.equal(verificationRequest.status, 201);
+  const senderVerification = (await verificationRequest.json()).verification;
+  assert.match(senderVerification.code, /^\d{2}$/);
+
+  const recipientVerifications = await fetchApp("/api/lan/verifications", { headers: lanHeaders(recipient, false) });
+  assert.equal(recipientVerifications.status, 200);
+  const recipientVerification = (await recipientVerifications.json()).verifications.find((item) => item.id === senderVerification.id);
+  assert.equal(recipientVerification.code, senderVerification.code);
+
+  const senderConfirmed = await fetchApp(`/api/lan/verifications/${senderVerification.id}/confirm`, {
+    body: JSON.stringify({}),
+    headers: lanHeaders(sender),
+    method: "POST",
+  });
+  assert.equal(senderConfirmed.status, 200);
+  assert.equal((await senderConfirmed.json()).verification.status, "pending");
+
+  const recipientConfirmed = await fetchApp(`/api/lan/verifications/${senderVerification.id}/confirm`, {
+    body: JSON.stringify({}),
+    headers: lanHeaders(recipient),
+    method: "POST",
+  });
+  assert.equal(recipientConfirmed.status, 200);
+  assert.equal((await recipientConfirmed.json()).verification.status, "verified");
 
   const requested = await fetchApp("/api/lan/transfers/request", {
     body: JSON.stringify({
@@ -340,4 +348,25 @@ test("declined verification is removed instead of being kept as history", async 
   assert.equal(declined.status, 204);
   const remaining = await fetchApp("/api/lan/verifications", { headers: lanHeaders(sender, false) });
   assert.deepEqual((await remaining.json()).verifications, []);
+});
+
+test("Nearby Users presents active signed-in users and guests without network addresses", async () => {
+  const viewer = lanIdentity();
+  const signedInDevice = lanIdentity();
+  await announceLanDevice(viewer);
+  const aliceSession = await login("alice", "alice-password-123");
+  await announceLanDevice(signedInDevice, aliceSession);
+
+  const devices = await fetchApp("/api/lan/devices", { headers: lanHeaders(viewer, false) });
+  assert.equal(devices.status, 200);
+  const alice = (await devices.json()).devices.find((device) => device.id === signedInDevice.deviceId);
+  assert.deepEqual(alice, {
+    deviceName: "Test browser device",
+    displayName: "alice",
+    id: signedInDevice.deviceId,
+    online: true,
+    platform: "Test browser",
+  });
+  assert.equal(Object.hasOwn(alice, "ip"), false);
+  assert.equal(Object.hasOwn(alice, "scope"), false);
 });
