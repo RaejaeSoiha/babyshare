@@ -17,6 +17,7 @@ module.exports = function registerLanRoutes(app, deps) {
     LAN_TRANSFER_TMP,
     LAN_TRANSFERS,
     SECRET_KEY,
+    WEBRTC_SIGNALING_ENABLED,
     decryptFile,
     encryptFile,
   } = deps;
@@ -28,7 +29,9 @@ module.exports = function registerLanRoutes(app, deps) {
   });
 
   function requireLanRequest(req, res) {
-    const remoteAddress = req.socket.remoteAddress || req.ip || "";
+    // req.ip is the client address only when the explicitly configured, one-hop
+    // reverse proxy is trusted. Otherwise Express derives it from the socket.
+    const remoteAddress = req.ip || req.socket.remoteAddress || "";
     if (!isPrivateLanAddress(remoteAddress)) {
       res.status(403).json({ error: "lan_only" });
       return null;
@@ -69,40 +72,29 @@ module.exports = function registerLanRoutes(app, deps) {
     return res.json({ transfers: LAN_TRANSFERS.listTransfers(device) });
   });
 
-  app.get("/api/lan/verifications", (req, res) => {
-    const device = requireDevice(req, res);
-    if (!device) return;
-    return res.json({ verifications: LAN_TRANSFERS.listVerifications(device) });
-  });
-
   app.get("/api/lan/chats", (req, res) => {
     const device = requireDevice(req, res);
     if (!device) return;
     return res.json({ chats: LAN_TRANSFERS.listChats(device) });
   });
 
-  app.post("/api/lan/verifications/request", (req, res) => {
-    const sender = requireDevice(req, res);
-    if (!sender) return;
-    const result = LAN_TRANSFERS.requestVerification(sender, req.body?.recipientId);
-    if (result.error) return res.status(result.error === "device_unavailable" ? 404 : 400).json({ error: result.error });
-    return res.status(201).json(result);
-  });
+  // WebRTC uses the same short-lived LAN device credentials as direct sharing.
+  // This relay carries only SDP/ICE negotiation data; it stores neither calls nor files.
+  if (WEBRTC_SIGNALING_ENABLED) {
+    app.get("/api/lan/signals", (req, res) => {
+      const device = requireDevice(req, res);
+      if (!device) return;
+      return res.json({ signals: LAN_TRANSFERS.takeSignals(device) });
+    });
 
-  app.post("/api/lan/verifications/:id/confirm", (req, res) => {
-    const device = requireDevice(req, res);
-    if (!device) return;
-    const verification = LAN_TRANSFERS.confirmVerification(req.params.id, device);
-    if (!verification) return res.status(404).json({ error: "verification_unavailable" });
-    return res.json({ verification });
-  });
-
-  app.post("/api/lan/verifications/:id/decline", (req, res) => {
-    const device = requireDevice(req, res);
-    if (!device) return;
-    if (!LAN_TRANSFERS.declineVerification(req.params.id, device)) return res.status(404).json({ error: "verification_unavailable" });
-    return res.status(204).end();
-  });
+    app.post("/api/lan/signals", (req, res) => {
+      const sender = requireDevice(req, res);
+      if (!sender) return;
+      const result = LAN_TRANSFERS.relaySignal(sender, req.body?.recipientId, req.body?.signal);
+      if (result.error) return res.status(result.error === "device_unavailable" ? 404 : 400).json({ error: result.error });
+      return res.status(202).json(result);
+    });
+  }
 
   app.post("/api/lan/chats/request", (req, res) => {
     const sender = requireDevice(req, res);
@@ -140,7 +132,7 @@ module.exports = function registerLanRoutes(app, deps) {
     if (!sender) return;
     const { recipientId, files } = req.body || {};
     const result = LAN_TRANSFERS.requestTransfers(sender, recipientId, files);
-    if (result.error) return res.status(result.error === "device_unavailable" ? 404 : result.error === "verification_required" ? 409 : 400).json({ error: result.error });
+    if (result.error) return res.status(result.error === "device_unavailable" ? 404 : 400).json({ error: result.error });
     return res.status(201).json(result);
   });
 

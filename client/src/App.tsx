@@ -2,6 +2,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Background from "./components/Background";
 import { LanTransferNotifications, LanTransferProvider } from "./components/LanTransfers";
+import WorkspaceChatDock from "./components/WorkspaceChatDock";
 import Home from "./pages/Home";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
@@ -32,6 +33,7 @@ export default function App() {
           <Route path="/home" element={<Navigate to="/" replace />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
+        <WorkspaceChatDock />
         <LanTransferNotifications />
       </LanTransferProvider>
     </BrowserRouter>

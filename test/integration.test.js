@@ -14,6 +14,7 @@ process.env.SESSION_SECRET = "test-session-secret-that-is-long-enough-for-the-su
 process.env.NODE_ENV = "test";
 process.env.PORT = "0";
 process.env.HTTP_PORT = "0";
+process.env.FRONTEND_BASE_URL = "http://localhost:3000";
 
 const { encryptFile } = require("../src/services/storage");
 const { createApp } = require("../src/server");
@@ -193,7 +194,28 @@ test("registration blocks traversal usernames and state changes require a same-o
   assert.equal(crossOrigin.status, 403);
 });
 
-test("LAN chat is available immediately while direct transfers require verification and are erased after download", async () => {
+test("CORS admits only the configured frontend origin and allows device credential headers", async () => {
+  const preflight = await fetchApp("/api/lan/devices", {
+    headers: {
+      "Access-Control-Request-Headers": "content-type,x-babyshare-device-id,x-babyshare-device-token",
+      "Access-Control-Request-Method": "GET",
+      Origin: "http://localhost:3000",
+    },
+    method: "OPTIONS",
+  });
+  assert.equal(preflight.status, 204);
+  assert.equal(preflight.headers.get("access-control-allow-origin"), "http://localhost:3000");
+  assert.equal(preflight.headers.get("access-control-allow-credentials"), "true");
+  assert.match(preflight.headers.get("access-control-allow-headers") || "", /x-babyshare-device-token/i);
+
+  const rejected = await fetchApp("/api/lan/devices", {
+    headers: { Origin: "https://attacker.invalid" },
+    method: "OPTIONS",
+  });
+  assert.equal(rejected.status, 403);
+});
+
+test("LAN chat and recipient-approved direct transfers are available immediately and erased after use", async () => {
   const sender = lanIdentity();
   const recipient = lanIdentity();
   await announceLanDevice(sender);
@@ -248,42 +270,23 @@ test("LAN chat is available immediately while direct transfers require verificat
   const erasedChats = await fetchApp("/api/lan/chats", { headers: lanHeaders(sender, false) });
   assert.deepEqual((await erasedChats.json()).chats, []);
 
-  const beforeVerification = await fetchApp("/api/lan/transfers/request", {
-    body: JSON.stringify({ files: [{ name: "nearby.txt", size: 20 }], recipientId: recipient.deviceId }),
+  const signalSent = await fetchApp("/api/lan/signals", {
+    body: JSON.stringify({
+      recipientId: recipient.deviceId,
+      signal: { sessionId: "nearby-session-123", sdp: "offer-data", type: "offer" },
+    }),
     headers: lanHeaders(sender),
     method: "POST",
   });
-  assert.equal(beforeVerification.status, 409);
-
-  const verificationRequest = await fetchApp("/api/lan/verifications/request", {
-    body: JSON.stringify({ recipientId: recipient.deviceId }),
-    headers: lanHeaders(sender),
-    method: "POST",
-  });
-  assert.equal(verificationRequest.status, 201);
-  const senderVerification = (await verificationRequest.json()).verification;
-  assert.match(senderVerification.code, /^\d{2}$/);
-
-  const recipientVerifications = await fetchApp("/api/lan/verifications", { headers: lanHeaders(recipient, false) });
-  assert.equal(recipientVerifications.status, 200);
-  const recipientVerification = (await recipientVerifications.json()).verifications.find((item) => item.id === senderVerification.id);
-  assert.equal(recipientVerification.code, senderVerification.code);
-
-  const senderConfirmed = await fetchApp(`/api/lan/verifications/${senderVerification.id}/confirm`, {
-    body: JSON.stringify({}),
-    headers: lanHeaders(sender),
-    method: "POST",
-  });
-  assert.equal(senderConfirmed.status, 200);
-  assert.equal((await senderConfirmed.json()).verification.status, "pending");
-
-  const recipientConfirmed = await fetchApp(`/api/lan/verifications/${senderVerification.id}/confirm`, {
-    body: JSON.stringify({}),
-    headers: lanHeaders(recipient),
-    method: "POST",
-  });
-  assert.equal(recipientConfirmed.status, 200);
-  assert.equal((await recipientConfirmed.json()).verification.status, "verified");
+  assert.equal(signalSent.status, 202);
+  const recipientSignals = await fetchApp("/api/lan/signals", { headers: lanHeaders(recipient, false) });
+  assert.equal(recipientSignals.status, 200);
+  const deliveredSignals = (await recipientSignals.json()).signals;
+  assert.equal(deliveredSignals.length, 1);
+  assert.equal(deliveredSignals[0].senderId, sender.deviceId);
+  assert.equal(deliveredSignals[0].signal.type, "offer");
+  const consumedSignals = await fetchApp("/api/lan/signals", { headers: lanHeaders(recipient, false) });
+  assert.deepEqual((await consumedSignals.json()).signals, []);
 
   const requested = await fetchApp("/api/lan/transfers/request", {
     body: JSON.stringify({
@@ -299,9 +302,6 @@ test("LAN chat is available immediately while direct transfers require verificat
 
   const unauthorizedDownload = await fetchApp(`/api/lan/transfers/${transfer.id}/download`);
   assert.equal(unauthorizedDownload.status, 403);
-
-  const spentVerification = await fetchApp("/api/lan/verifications", { headers: lanHeaders(sender, false) });
-  assert.deepEqual((await spentVerification.json()).verifications, []);
 
   const accepted = await fetchApp(`/api/lan/transfers/${transfer.id}/accept`, {
     body: JSON.stringify({}),
@@ -326,28 +326,6 @@ test("LAN chat is available immediately while direct transfers require verificat
   assert.equal(await download.text(), "nearby transfer file");
   const consumed = await fetchApp(downloadPath);
   assert.equal(consumed.status, 404);
-});
-
-test("declined verification is removed instead of being kept as history", async () => {
-  const sender = lanIdentity();
-  const recipient = lanIdentity();
-  await announceLanDevice(sender);
-  await announceLanDevice(recipient);
-  const requested = await fetchApp("/api/lan/verifications/request", {
-    body: JSON.stringify({ recipientId: recipient.deviceId }),
-    headers: lanHeaders(sender),
-    method: "POST",
-  });
-  assert.equal(requested.status, 201);
-  const verification = (await requested.json()).verification;
-  const declined = await fetchApp(`/api/lan/verifications/${verification.id}/decline`, {
-    body: JSON.stringify({}),
-    headers: lanHeaders(recipient),
-    method: "POST",
-  });
-  assert.equal(declined.status, 204);
-  const remaining = await fetchApp("/api/lan/verifications", { headers: lanHeaders(sender, false) });
-  assert.deepEqual((await remaining.json()).verifications, []);
 });
 
 test("Nearby Users presents active signed-in users and guests without network addresses", async () => {

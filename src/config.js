@@ -17,6 +17,15 @@ function readPositiveInt(value, fallback) {
   return Number.isInteger(number) && number > 0 ? number : fallback;
 }
 
+function readUrlOrigin(value) {
+  if (!value) return "";
+  try {
+    return new URL(value).origin;
+  } catch {
+    return "";
+  }
+}
+
 function toAbsolutePath(value, fallback) {
   return path.resolve(value || fallback);
 }
@@ -63,11 +72,21 @@ const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || process.env.DOMAIN || ""
 const PORT = readPort(process.env.PORT, 3000);
 const HTTP_PORT = readPort(process.env.HTTP_PORT, PORT);
 const SESSION_MAX_AGE_MS = readPositiveInt(process.env.SESSION_MAX_AGE_MS, 8 * 60 * 60 * 1000);
+const TRUST_PROXY = process.env.TRUST_PROXY === "true";
+const BIND_HOST = (process.env.BIND_HOST || "0.0.0.0").trim();
+const configuredLanDiscoveryPort = readPort(process.env.LAN_DISCOVERY_PORT, 0);
+const WEBRTC_SIGNALING_ENABLED = process.env.WEBRTC_SIGNALING_ENABLED !== "false";
+const FRONTEND_ORIGIN = readUrlOrigin(FRONTEND_BASE_URL);
+const PUBLIC_ORIGIN = readUrlOrigin(PUBLIC_BASE_URL);
+const CROSS_ORIGIN_FRONTEND = Boolean(FRONTEND_ORIGIN && PUBLIC_ORIGIN && FRONTEND_ORIGIN !== PUBLIC_ORIGIN);
 
 const CERT_KEY_PATH = toAbsolutePath(process.env.TLS_KEY_PATH, path.join(ROOT_DIR, "certs", "selfsigned.key"));
 const CERT_CRT_PATH = toAbsolutePath(process.env.TLS_CERT_PATH, path.join(ROOT_DIR, "certs", "selfsigned.crt"));
 const HTTPS_ENABLED = process.env.FORCE_HTTPS === "true";
 const SHARE_USE_HTTPS = process.env.SHARE_USE_HTTPS === "true";
+const defaultLanDiscoveryProtocol = HTTPS_ENABLED && SHARE_USE_HTTPS ? "https" : "http";
+const LAN_DISCOVERY_PROTOCOL = process.env.LAN_DISCOVERY_PROTOCOL === "https" ? "https" : defaultLanDiscoveryProtocol;
+const LAN_DISCOVERY_PORT = configuredLanDiscoveryPort || (LAN_DISCOVERY_PROTOCOL === "https" ? PORT : HTTP_PORT);
 
 const distCandidates = [
   process.env.BBS_DIST_DIR,
@@ -114,6 +133,18 @@ function validateRuntimeConfig() {
     }
   }
 
+  if (FRONTEND_BASE_URL && !FRONTEND_ORIGIN) {
+    throw new Error("FRONTEND_BASE_URL must be a valid URL when configured");
+  }
+  if (CROSS_ORIGIN_FRONTEND) {
+    if (!FRONTEND_BASE_URL.startsWith("https://")) {
+      throw new Error("A cross-origin FRONTEND_BASE_URL must use HTTPS in production");
+    }
+    if (!HTTPS_ENABLED && !TRUST_PROXY) {
+      throw new Error("A cross-origin frontend requires FORCE_HTTPS=true or TRUST_PROXY=true in production");
+    }
+  }
+
   if (HTTPS_ENABLED && (!fs.existsSync(CERT_KEY_PATH) || !fs.existsSync(CERT_CRT_PATH))) {
     throw new Error("FORCE_HTTPS=true requires TLS_KEY_PATH and TLS_CERT_PATH to reference readable certificates");
   }
@@ -122,19 +153,27 @@ function validateRuntimeConfig() {
 module.exports = {
   CERT_CRT_PATH,
   CERT_KEY_PATH,
+  BIND_HOST,
+  CROSS_ORIGIN_FRONTEND,
   DATA_DIR,
   DIST_DIR,
+  FRONTEND_ORIGIN,
   FRONTEND_BASE_URL,
   HAS_DIST,
   HTTPS_ENABLED,
   HTTP_PORT,
   IS_DESKTOP,
   IS_PRODUCTION,
+  LAN_DISCOVERY_PORT,
+  LAN_DISCOVERY_PROTOCOL,
   NODE_ENV,
   PORT,
+  PUBLIC_ORIGIN,
   PUBLIC_BASE_URL,
   ROOT_DIR,
   SESSION_MAX_AGE_MS,
   SHARE_USE_HTTPS,
   validateRuntimeConfig,
+  TRUST_PROXY,
+  WEBRTC_SIGNALING_ENABLED,
 };

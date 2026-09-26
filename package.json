@@ -9,6 +9,7 @@
         "client:dev": "npm run dev --prefix client",
         "client:build": "npm run build --prefix client",
         "build": "npm run client:build",
+        "check:production-config": "node scripts/validate-production-config.js",
         "sidecar:build": "node scripts/build-sidecar.js",
         "test": "node --test"
     },

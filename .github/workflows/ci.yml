@@ -1,0 +1,51 @@
+name: Validate BabyShare
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: babyshare-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Test, lint, build, and package
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            npm-shrinkwrap.json
+            client/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm ci
+
+      - name: Install frontend dependencies
+        run: npm --prefix client ci
+
+      - name: Validate production environment contract
+        run: node scripts/validate-production-config.js
+
+      - name: Run backend integration tests
+        run: npm test
+
+      - name: Lint frontend
+        run: npm --prefix client run lint
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Build production container
+        run: docker build --tag babyshare:${{ github.sha }} .

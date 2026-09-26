@@ -13,18 +13,24 @@ require("dotenv").config();
 const {
   CERT_CRT_PATH,
   CERT_KEY_PATH,
+  BIND_HOST,
   DATA_DIR,
   DIST_DIR,
+  CROSS_ORIGIN_FRONTEND,
   FRONTEND_BASE_URL,
   HAS_DIST,
   HTTPS_ENABLED,
   HTTP_PORT,
   IS_PRODUCTION,
+  LAN_DISCOVERY_PORT,
+  LAN_DISCOVERY_PROTOCOL,
   PORT,
   PUBLIC_BASE_URL,
   SHARE_USE_HTTPS,
   SESSION_MAX_AGE_MS,
+  TRUST_PROXY,
   validateRuntimeConfig,
+  WEBRTC_SIGNALING_ENABLED,
 } = require("./config");
 const { loadUsers, loadShares, saveUsers, saveShares } = require("./data/store");
 const { decryptFile, encryptFile, ensureDir } = require("./services/storage");
@@ -53,8 +59,8 @@ function wantsJson(req) {
   return req.path.startsWith("/api/") || req.path === "/upload" || req.path === "/guest-upload";
 }
 
-function createSameOriginGuard() {
-  const configuredOrigins = [FRONTEND_BASE_URL, PUBLIC_BASE_URL]
+function configuredOrigins() {
+  return [FRONTEND_BASE_URL, PUBLIC_BASE_URL]
     .filter(Boolean)
     .flatMap((value) => {
       try {
@@ -63,6 +69,33 @@ function createSameOriginGuard() {
         return [];
       }
     });
+}
+
+function createCorsMiddleware(allowedOrigins) {
+  const allowed = new Set(allowedOrigins);
+  return (req, res, next) => {
+    const origin = req.get("origin");
+    if (!origin) return next();
+    if (!allowed.has(origin)) {
+      if (req.method === "OPTIONS") return res.status(403).json({ error: "cross_origin_request" });
+      return next();
+    }
+
+    res.vary("Origin");
+    res.set({
+      "Access-Control-Allow-Credentials": "true",
+      "Access-Control-Allow-Headers": "Content-Type, X-BabyShare-Device-Id, X-BabyShare-Device-Token",
+      "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS, POST, PUT, PATCH, DELETE",
+      "Access-Control-Allow-Origin": origin,
+      "Access-Control-Max-Age": "600",
+    });
+    if (req.method === "OPTIONS") return res.status(204).end();
+    return next();
+  };
+}
+
+function createSameOriginGuard(allowedOrigins) {
+  const configuredOriginSet = new Set(allowedOrigins);
 
   return (req, res, next) => {
     if (["GET", "HEAD", "OPTIONS"].includes(req.method)) return next();
@@ -79,7 +112,7 @@ function createSameOriginGuard() {
 
     const scheme = req.secure ? "https" : "http";
     const requestOrigin = `${scheme}://${req.get("host")}`;
-    if (sourceOrigin === requestOrigin || configuredOrigins.includes(sourceOrigin)) return next();
+    if (sourceOrigin === requestOrigin || configuredOriginSet.has(sourceOrigin)) return next();
     return res.status(403).json({ error: "cross_origin_request" });
   };
 }
@@ -87,8 +120,8 @@ function createSameOriginGuard() {
 function createApp() {
   validateRuntimeConfig();
   const app = express();
-  const trustProxy = process.env.TRUST_PROXY === "true";
-  if (trustProxy) app.set("trust proxy", 1);
+  if (TRUST_PROXY) app.set("trust proxy", 1);
+  const allowedOrigins = configuredOrigins();
 
   app.disable("x-powered-by");
   const helmet = require("helmet");
@@ -98,7 +131,7 @@ function createApp() {
         directives: {
           defaultSrc: ["'self'"],
           baseUri: ["'self'"],
-          connectSrc: ["'self'"],
+          connectSrc: ["'self'", ...allowedOrigins],
           fontSrc: ["'self'", "data:"],
           formAction: ["'self'"],
           frameAncestors: ["'self'"],
@@ -114,6 +147,8 @@ function createApp() {
     })
   );
 
+  app.use(createCorsMiddleware(allowedOrigins));
+
   app.use(express.urlencoded({ extended: false, limit: "64kb" }));
   app.use(express.json({ limit: "64kb" }));
 
@@ -124,8 +159,8 @@ function createApp() {
       cookie: {
         httpOnly: true,
         maxAge: SESSION_MAX_AGE_MS,
-        sameSite: "lax",
-        secure: HTTPS_ENABLED || (IS_PRODUCTION && trustProxy),
+        sameSite: CROSS_ORIGIN_FRONTEND ? "none" : "lax",
+        secure: HTTPS_ENABLED || (IS_PRODUCTION && TRUST_PROXY),
       },
       name: "babyshare.sid",
       resave: false,
@@ -293,6 +328,7 @@ function createApp() {
     UPLOADS_TMP,
     UPLOADS_USERS,
     USERS,
+    WEBRTC_SIGNALING_ENABLED,
     appRedirect,
     decryptFile,
     encryptFile,
@@ -315,7 +351,7 @@ function createApp() {
     uploadLimiter,
   };
 
-  app.use(createSameOriginGuard());
+  app.use(createSameOriginGuard(allowedOrigins));
   registerApiRoutes(app, sharedDependencies);
   registerLanRoutes(app, sharedDependencies);
   registerAuthRoutes(app, sharedDependencies);
@@ -341,26 +377,26 @@ function createApp() {
 
 function startServers() {
   const app = createApp();
-  const lanServicePort = HTTPS_ENABLED && SHARE_USE_HTTPS ? PORT : HTTP_PORT;
+  const lanServicePort = LAN_DISCOVERY_PORT || (HTTPS_ENABLED && SHARE_USE_HTTPS ? PORT : HTTP_PORT);
   let discoveryStarted = false;
   const startDiscovery = () => {
     if (discoveryStarted) return;
     discoveryStarted = true;
-    startLanDiscovery({ servicePort: lanServicePort });
+    startLanDiscovery({ servicePort: lanServicePort, serviceProtocol: LAN_DISCOVERY_PROTOCOL });
   };
   if (HTTPS_ENABLED) {
     const key = fs.readFileSync(CERT_KEY_PATH);
     const cert = fs.readFileSync(CERT_CRT_PATH);
-    https.createServer({ cert, key }, app).listen(PORT, "0.0.0.0", () => {
+    https.createServer({ cert, key }, app).listen(PORT, BIND_HOST, () => {
       console.info(`BabyShare listening on https://localhost:${PORT}`);
       console.info(`Configured share base: ${getShareBaseUrl()}`);
       startDiscovery();
     });
-    if (HTTP_PORT !== PORT) http.createServer(app).listen(HTTP_PORT, "0.0.0.0");
+    if (HTTP_PORT !== PORT) http.createServer(app).listen(HTTP_PORT, BIND_HOST);
     return;
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  app.listen(PORT, BIND_HOST, () => {
     console.info(`BabyShare listening on http://localhost:${PORT}`);
     console.info(`LAN address: http://${getPreferredLanIp()}:${PORT}`);
     startDiscovery();

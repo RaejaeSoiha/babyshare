@@ -1,6 +1,14 @@
 // Network helpers for choosing a LAN address and configured public share URLs.
 const os = require("os");
-const { HTTP_PORT, HTTPS_ENABLED, PORT, PUBLIC_BASE_URL, SHARE_USE_HTTPS } = require("../config");
+const {
+  HTTP_PORT,
+  HTTPS_ENABLED,
+  LAN_DISCOVERY_PORT,
+  LAN_DISCOVERY_PROTOCOL,
+  PORT,
+  PUBLIC_BASE_URL,
+  SHARE_USE_HTTPS,
+} = require("../config");
 
 function normalizeRemoteAddress(value) {
   if (typeof value !== "string") return "";
@@ -54,8 +62,8 @@ function getPreferredLanIp() {
 }
 
 function getLocalBaseUrl() {
-  const protocol = HTTPS_ENABLED && SHARE_USE_HTTPS ? "https" : "http";
-  const port = protocol === "https" ? PORT : HTTP_PORT;
+  const protocol = LAN_DISCOVERY_PROTOCOL || (HTTPS_ENABLED && SHARE_USE_HTTPS ? "https" : "http");
+  const port = LAN_DISCOVERY_PORT || (protocol === "https" ? PORT : HTTP_PORT);
   return `${protocol}://${getPreferredLanIp()}:${port}`;
 }
 

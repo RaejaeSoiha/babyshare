@@ -4,7 +4,6 @@ const fs = require("fs");
 const { isValidUploadName, resolveWithin } = require("../utils/security");
 
 const DEVICE_TTL_MS = 45_000;
-const VERIFICATION_TTL_MS = 5 * 60 * 1000;
 const CHAT_PENDING_TTL_MS = 10 * 60 * 1000;
 const CHAT_TTL_MS = 30 * 60 * 1000;
 const PENDING_TTL_MS = 10 * 60 * 1000;
@@ -13,6 +12,9 @@ const READY_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_FILE_SIZE = 1024 * 1024 * 1024;
 const MAX_CHAT_MESSAGE_LENGTH = 1_000;
 const MAX_CHAT_MESSAGES = 200;
+const SIGNAL_TTL_MS = 60 * 1000;
+const MAX_SIGNAL_BYTES = 32 * 1024;
+const MAX_SIGNALS_PER_DEVICE = 24;
 
 function hashToken(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
@@ -48,13 +50,24 @@ function cleanChatMessage(value) {
   return cleaned.length > 0 && cleaned.length <= MAX_CHAT_MESSAGE_LENGTH ? cleaned : null;
 }
 
+function validSignal(signal) {
+  if (!signal || typeof signal !== "object" || Array.isArray(signal)) return false;
+  if (!(["offer", "answer", "candidate", "hangup"].includes(signal.type))) return false;
+  if (typeof signal.sessionId !== "string" || !/^[a-z0-9_-]{8,96}$/i.test(signal.sessionId)) return false;
+  try {
+    return Buffer.byteLength(JSON.stringify(signal), "utf8") <= MAX_SIGNAL_BYTES;
+  } catch {
+    return false;
+  }
+}
+
 class LanTransferService {
   constructor({ uploadDirectory }) {
     this.uploadDirectory = uploadDirectory;
     this.devices = new Map();
-    this.verifications = new Map();
     this.chats = new Map();
     this.transfers = new Map();
+    this.signals = new Map();
     fs.mkdirSync(uploadDirectory, { recursive: true });
   }
 
@@ -100,70 +113,6 @@ class LanTransferService {
         online: true,
         platform,
       }));
-  }
-
-  requestVerification(sender, recipientId) {
-    if (!isDeviceId(recipientId) || recipientId === sender.id) return { error: "invalid_device" };
-    const recipient = this.devices.get(recipientId);
-    if (!recipient || recipient.scope !== sender.scope || recipient.updatedAt + DEVICE_TTL_MS < Date.now()) {
-      return { error: "device_unavailable" };
-    }
-
-    this.cleanup();
-    const existing = [...this.verifications.values()].find((verification) => verification.status === "pending"
-      && ((verification.senderId === sender.id && verification.recipientId === recipient.id)
-        || (verification.senderId === recipient.id && verification.recipientId === sender.id)));
-    if (existing) return { verification: this.toClientVerification(existing, sender) };
-
-    const now = Date.now();
-    const verification = {
-      code: crypto.randomInt(10, 100).toString(),
-      createdAt: now,
-      id: crypto.randomUUID(),
-      recipientConfirmed: false,
-      recipientId: recipient.id,
-      recipientName: recipient.name,
-      senderConfirmed: false,
-      senderId: sender.id,
-      senderName: sender.name,
-      status: "pending",
-      updatedAt: now,
-    };
-    this.verifications.set(verification.id, verification);
-    return { verification: this.toClientVerification(verification, sender) };
-  }
-
-  listVerifications(device) {
-    this.cleanup();
-    return [...this.verifications.values()]
-      .filter((verification) => verification.senderId === device.id || verification.recipientId === device.id)
-      .sort((left, right) => right.updatedAt - left.updatedAt)
-      .map((verification) => this.toClientVerification(verification, device));
-  }
-
-  confirmVerification(id, device) {
-    const verification = this.verifications.get(id);
-    if (!verification || verification.status !== "pending") return null;
-    if (verification.senderId === device.id) verification.senderConfirmed = true;
-    else if (verification.recipientId === device.id) verification.recipientConfirmed = true;
-    else return null;
-
-    verification.status = verification.senderConfirmed && verification.recipientConfirmed ? "verified" : "pending";
-    verification.updatedAt = Date.now();
-    return this.toClientVerification(verification, device);
-  }
-
-  declineVerification(id, device) {
-    const verification = this.verifications.get(id);
-    if (!verification || (verification.senderId !== device.id && verification.recipientId !== device.id)) return false;
-    this.verifications.delete(id);
-    return true;
-  }
-
-  verifiedPair(sender, recipient) {
-    return [...this.verifications.values()].some((verification) => verification.status === "verified"
-      && ((verification.senderId === sender.id && verification.recipientId === recipient.id)
-        || (verification.senderId === recipient.id && verification.recipientId === sender.id)));
   }
 
   requestChat(sender, recipientId) {
@@ -237,6 +186,40 @@ class LanTransferService {
     return true;
   }
 
+  relaySignal(sender, recipientId, signal) {
+    if (!isDeviceId(recipientId) || recipientId === sender.id || !validSignal(signal)) return { error: "invalid_signal" };
+    this.cleanup();
+    const recipient = this.devices.get(recipientId);
+    if (!recipient || recipient.scope !== sender.scope || recipient.updatedAt + DEVICE_TTL_MS < Date.now()) {
+      return { error: "device_unavailable" };
+    }
+
+    const queue = this.signals.get(recipient.id) || [];
+    if (queue.length >= MAX_SIGNALS_PER_DEVICE) queue.splice(0, queue.length - MAX_SIGNALS_PER_DEVICE + 1);
+    const relayed = {
+      createdAt: Date.now(),
+      id: crypto.randomUUID(),
+      senderId: sender.id,
+      signal: JSON.parse(JSON.stringify(signal)),
+      scope: sender.scope,
+    };
+    queue.push(relayed);
+    this.signals.set(recipient.id, queue);
+    return { signal: { id: relayed.id, queued: true } };
+  }
+
+  takeSignals(device) {
+    this.cleanup();
+    const queue = this.signals.get(device.id) || [];
+    this.signals.delete(device.id);
+    return queue.filter((entry) => entry.scope === device.scope).map((entry) => ({
+      createdAt: entry.createdAt,
+      id: entry.id,
+      senderId: entry.senderId,
+      signal: entry.signal,
+    }));
+  }
+
   requestTransfers(sender, recipientId, files) {
     if (!isDeviceId(recipientId) || !Array.isArray(files) || files.length === 0 || files.length > 20 || files.some((file) => !validFileMeta(file))) {
       return { error: "invalid_transfer" };
@@ -246,13 +229,6 @@ class LanTransferService {
       return { error: "device_unavailable" };
     }
 
-    const verifiedId = [...this.verifications.values()].find((verification) => verification.status === "verified"
-      && ((verification.senderId === sender.id && verification.recipientId === recipient.id)
-        || (verification.senderId === recipient.id && verification.recipientId === sender.id)))?.id;
-    if (!verifiedId) return { error: "verification_required" };
-
-    // The code is one-use: no durable contact or conversation state remains after a transfer begins.
-    this.verifications.delete(verifiedId);
     const now = Date.now();
     const transfers = files.map((file) => {
       const transfer = {
@@ -365,21 +341,6 @@ class LanTransferService {
     }
   }
 
-  toClientVerification(verification, device) {
-    const outgoing = verification.senderId === device.id;
-    return {
-      code: verification.code,
-      createdAt: verification.createdAt,
-      direction: outgoing ? "outgoing" : "incoming",
-      id: verification.id,
-      peerId: outgoing ? verification.recipientId : verification.senderId,
-      peerName: outgoing ? verification.recipientName : verification.senderName,
-      status: verification.status,
-      updatedAt: verification.updatedAt,
-      yourConfirmed: outgoing ? verification.senderConfirmed : verification.recipientConfirmed,
-    };
-  }
-
   toClientChat(chat, device) {
     const outgoing = chat.senderId === device.id;
     return {
@@ -425,9 +386,6 @@ class LanTransferService {
     for (const [id, device] of this.devices) {
       if (device.updatedAt + DEVICE_TTL_MS < now) this.devices.delete(id);
     }
-    for (const [id, verification] of this.verifications) {
-      if (verification.updatedAt + VERIFICATION_TTL_MS < now) this.verifications.delete(id);
-    }
     for (const [id, chat] of this.chats) {
       const ttl = chat.status === "pending" ? CHAT_PENDING_TTL_MS : CHAT_TTL_MS;
       if (chat.updatedAt + ttl < now) this.chats.delete(id);
@@ -444,6 +402,11 @@ class LanTransferService {
         if (filePath) fs.promises.unlink(filePath).catch(() => {});
       }
       this.transfers.delete(id);
+    }
+    for (const [deviceId, queue] of this.signals) {
+      const active = queue.filter((entry) => entry.createdAt + SIGNAL_TTL_MS >= now);
+      if (active.length > 0) this.signals.set(deviceId, active);
+      else this.signals.delete(deviceId);
     }
   }
 }

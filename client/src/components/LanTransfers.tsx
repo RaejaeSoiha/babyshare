@@ -9,17 +9,6 @@ export type LanDevice = {
   online: true;
   platform: string;
 };
-export type LanVerification = {
-  code: string;
-  createdAt: number;
-  direction: "incoming" | "outgoing";
-  id: string;
-  peerId: string;
-  peerName: string;
-  status: "pending" | "verified";
-  updatedAt: number;
-  yourConfirmed: boolean;
-};
 export type LanChatMessage = { id: string; mine: boolean; sentAt: number; text: string };
 export type LanChat = {
   createdAt: number;
@@ -52,12 +41,10 @@ type LanTransferContextValue = {
   acceptChat: (chatId: string) => Promise<void>;
   sendChatMessage: (chatId: string, text: string) => Promise<void>;
   endChat: (chatId: string) => Promise<void>;
-  requestVerification: (recipientId: string) => Promise<void>;
-  confirmVerification: (verificationId: string) => Promise<void>;
-  declineVerification: (verificationId: string) => Promise<void>;
-  verifications: LanVerification[];
+  markChatRead: (chatId: string) => void;
   requestTransfers: (recipientId: string, files: File[]) => Promise<void>;
   transfers: LanTransfer[];
+  unreadChatIds: string[];
   acceptTransfer: (transferId: string) => Promise<void>;
   declineTransfer: (transferId: string) => Promise<void>;
   downloadTransfer: (transfer: LanTransfer) => void;
@@ -99,22 +86,18 @@ function getIdentity(): DeviceIdentity {
 
 function messageForError(error: unknown) {
   if (error instanceof Error && error.message === "device_unavailable") return "That device is no longer available. Refresh and try again.";
-  if (error instanceof Error && error.message === "verification_required") return "Compare and confirm the temporary code with your friend before sending files.";
   return "Nearby device sharing is temporarily unavailable. Keep BabyShare open and try again.";
-}
-
-function formatCode(code: string) {
-  return code;
 }
 
 export function LanTransferProvider({ children }: { children: ReactNode }) {
   const [identity] = useState(getIdentity);
   const pendingFilesRef = useRef(new Map<string, File>());
   const uploadsInFlightRef = useRef(new Set<string>());
+  const knownMessageIdsRef = useRef(new Set<string>());
   const [devices, setDevices] = useState<LanDevice[]>([]);
   const [chats, setChats] = useState<LanChat[]>([]);
   const [transfers, setTransfers] = useState<LanTransfer[]>([]);
-  const [verifications, setVerifications] = useState<LanVerification[]>([]);
+  const [unreadChatIds, setUnreadChatIds] = useState<string[]>([]);
   const [error, setError] = useState("");
 
   const deviceHeaders = useCallback(() => ({
@@ -130,21 +113,29 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
     });
     if (!presence.ok) throw new Error("presence_failed");
 
-    const [devicesResponse, chatsResponse, transfersResponse, verificationsResponse] = await Promise.all([
+    const [devicesResponse, chatsResponse, transfersResponse] = await Promise.all([
       apiFetch("/api/lan/devices", { headers: deviceHeaders() }),
       apiFetch("/api/lan/chats", { headers: deviceHeaders() }),
       apiFetch("/api/lan/transfers", { headers: deviceHeaders() }),
-      apiFetch("/api/lan/verifications", { headers: deviceHeaders() }),
     ]);
-    if (!devicesResponse.ok || !chatsResponse.ok || !transfersResponse.ok || !verificationsResponse.ok) throw new Error("lan_fetch_failed");
+    if (!devicesResponse.ok || !chatsResponse.ok || !transfersResponse.ok) throw new Error("lan_fetch_failed");
     const devicePayload = await devicesResponse.json() as { devices: LanDevice[] };
     const chatPayload = await chatsResponse.json() as { chats: LanChat[] };
     const transferPayload = await transfersResponse.json() as { transfers: LanTransfer[] };
-    const verificationPayload = await verificationsResponse.json() as { verifications: LanVerification[] };
     setDevices(devicePayload.devices);
     setChats(chatPayload.chats);
+    setUnreadChatIds((current) => {
+      const activeChatIds = new Set(chatPayload.chats.map((chat) => chat.id));
+      const next = new Set(current.filter((chatId) => activeChatIds.has(chatId)));
+      for (const chat of chatPayload.chats) {
+        for (const message of chat.messages) {
+          if (!message.mine && !knownMessageIdsRef.current.has(message.id)) next.add(chat.id);
+          knownMessageIdsRef.current.add(message.id);
+        }
+      }
+      return [...next];
+    });
     setTransfers(transferPayload.transfers);
-    setVerifications(verificationPayload.verifications);
     setError("");
   }, [deviceHeaders, identity]);
 
@@ -158,7 +149,9 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
       }
     };
     void poll();
-    const interval = window.setInterval(() => void poll(), 4_000);
+    // REST polling is the browser-compatible LAN fallback. A short interval
+    // keeps active chats feeling immediate without retaining message history.
+    const interval = window.setInterval(() => void poll(), 1_000);
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") void poll();
     };
@@ -169,10 +162,6 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [refresh]);
-
-  const updateVerification = useCallback((nextVerification: LanVerification) => {
-    setVerifications((current) => [nextVerification, ...current.filter((verification) => verification.id !== nextVerification.id)]);
-  }, []);
 
   const updateChat = useCallback((nextChat: LanChat) => {
     setChats((current) => [nextChat, ...current.filter((chat) => chat.id !== nextChat.id)]);
@@ -226,43 +215,13 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
     });
     if (!response.ok) throw new Error("chat_end_failed");
     setChats((current) => current.filter((chat) => chat.id !== chatId));
+    setUnreadChatIds((current) => current.filter((unreadChatId) => unreadChatId !== chatId));
     setError("");
   }, [deviceHeaders]);
 
-  const requestVerification = useCallback(async (recipientId: string) => {
-    const response = await apiFetch("/api/lan/verifications/request", {
-      body: JSON.stringify({ recipientId }),
-      headers: { "Content-Type": "application/json", ...deviceHeaders() },
-      method: "POST",
-    });
-    const payload = await response.json().catch(() => ({})) as { error?: string; verification?: LanVerification };
-    if (!response.ok || !payload.verification) throw new Error(payload.error || "verification_request_failed");
-    updateVerification(payload.verification);
-    setError("");
-  }, [deviceHeaders, updateVerification]);
-
-  const confirmVerification = useCallback(async (verificationId: string) => {
-    const response = await apiFetch(`/api/lan/verifications/${encodeURIComponent(verificationId)}/confirm`, {
-      body: JSON.stringify({}),
-      headers: { "Content-Type": "application/json", ...deviceHeaders() },
-      method: "POST",
-    });
-    const payload = await response.json().catch(() => ({})) as { verification?: LanVerification };
-    if (!response.ok || !payload.verification) throw new Error("verification_confirm_failed");
-    updateVerification(payload.verification);
-    setError("");
-  }, [deviceHeaders, updateVerification]);
-
-  const declineVerification = useCallback(async (verificationId: string) => {
-    const response = await apiFetch(`/api/lan/verifications/${encodeURIComponent(verificationId)}/decline`, {
-      body: JSON.stringify({}),
-      headers: { "Content-Type": "application/json", ...deviceHeaders() },
-      method: "POST",
-    });
-    if (!response.ok) throw new Error("verification_decline_failed");
-    setVerifications((current) => current.filter((verification) => verification.id !== verificationId));
-    setError("");
-  }, [deviceHeaders]);
+  const markChatRead = useCallback((chatId: string) => {
+    setUnreadChatIds((current) => current.filter((unreadChatId) => unreadChatId !== chatId));
+  }, []);
 
   const requestTransfers = useCallback(async (recipientId: string, files: File[]) => {
     const response = await apiFetch("/api/lan/transfers/request", {
@@ -277,7 +236,6 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
     if (!response.ok || !payload.transfers) throw new Error(payload.error || "request_failed");
     payload.transfers.forEach((transfer, index) => pendingFilesRef.current.set(transfer.id, files[index]));
     setTransfers((current) => [...payload.transfers!, ...current.filter((transfer) => !payload.transfers!.some((added) => added.id === transfer.id))]);
-    setVerifications((current) => current.filter((verification) => verification.peerId !== recipientId));
     setError("");
   }, [deviceHeaders]);
 
@@ -362,19 +320,17 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
       acceptTransfer,
       acceptChat,
       chats,
-      confirmVerification,
       declineTransfer,
-      declineVerification,
       devices,
       downloadTransfer,
       endChat,
       error,
+      markChatRead,
       requestChat,
       requestTransfers,
-      requestVerification,
       sendChatMessage,
       transfers,
-      verifications,
+      unreadChatIds,
     }}>
       {children}
     </LanTransferContext.Provider>
@@ -400,35 +356,18 @@ export function LanTransferNotifications() {
     acceptChat,
     acceptTransfer,
     chats,
-    confirmVerification,
     declineTransfer,
-    declineVerification,
     downloadTransfer,
     endChat,
     transfers,
-    verifications,
   } = useLanTransfers();
-  const incomingVerifications = verifications.filter((verification) => verification.direction === "incoming" && verification.status === "pending").slice(0, 3);
   const incomingChats = chats.filter((chat) => chat.direction === "incoming" && chat.status === "pending").slice(0, 3);
   const incomingTransfers = transfers.filter((transfer) => transfer.direction === "incoming"
     && ["pending", "accepted", "receiving", "ready"].includes(transfer.status)).slice(0, 3);
-  if (incomingVerifications.length === 0 && incomingChats.length === 0 && incomingTransfers.length === 0) return null;
+  if (incomingChats.length === 0 && incomingTransfers.length === 0) return null;
 
   return (
     <aside className="lan-notifications" aria-live="polite" aria-label="Nearby device alerts">
-      {incomingVerifications.map((verification) => (
-        <section className="lan-notification" key={verification.id}>
-          <p className="lan-notification-kicker">Securely verify a friend</p>
-          <strong>{verification.peerName} wants to verify this device</strong>
-          <p>Compare this two-digit pairing code by phone or in person. It is not a chat and is deleted after use.</p>
-          <output className="verification-code">{formatCode(verification.code)}</output>
-          {verification.yourConfirmed && <p>Waiting for your friend to confirm the same code.</p>}
-          <div className="lan-notification-actions">
-            {!verification.yourConfirmed && <button type="button" className="lan-accept" onClick={() => void confirmVerification(verification.id)}>Code matches</button>}
-            <button type="button" className="lan-decline" onClick={() => void declineVerification(verification.id)}>Decline</button>
-          </div>
-        </section>
-      ))}
       {incomingChats.map((chat) => (
         <section className="lan-notification" key={chat.id}>
           <p className="lan-notification-kicker">Private chat request</p>
@@ -442,7 +381,7 @@ export function LanTransferNotifications() {
       ))}
       {incomingTransfers.map((transfer) => (
         <section className="lan-notification" key={transfer.id}>
-          <p className="lan-notification-kicker">Verified nearby device</p>
+          <p className="lan-notification-kicker">Nearby file request</p>
           <strong>{transfer.peerName} wants to send {transfer.name}</strong>
           <p>Private one-time transfer — no conversation history is saved.</p>
           <p>{transferStatus(transfer)}</p>

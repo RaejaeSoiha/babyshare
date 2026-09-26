@@ -1,0 +1,15 @@
+{
+	email {$ACME_EMAIL}
+}
+
+# Caddy obtains and renews the public certificate automatically. The compose deployment uses
+# host networking so BabyShare's multicast discovery packets leave through the LAN interface.
+{$PUBLIC_HOST} {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:3000 {
+		# Replace, rather than forward, any client-supplied forwarding headers.
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Host {host}
+		header_up X-Forwarded-Proto {scheme}
+	}
+}

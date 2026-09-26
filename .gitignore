@@ -4,6 +4,8 @@ sessions/
 .env
 .env.*
 !.env.example
+!.env.production.example
+!client/.env.production.example
 users.json
 shares.json
 guestFiles.json

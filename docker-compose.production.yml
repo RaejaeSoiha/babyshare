@@ -1,0 +1,38 @@
+services:
+  babyshare:
+    build: .
+    container_name: babyshare
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - .env
+    environment:
+      BBS_DATA_DIR: /data
+      BIND_HOST: 127.0.0.1
+      FORCE_HTTPS: "false"
+      HTTP_PORT: 3000
+      NODE_ENV: production
+      PORT: 3000
+      TRUST_PROXY: "true"
+    volumes:
+      - ${BBS_DATA_HOST_PATH:-./runtime-data}:/data
+
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: babyshare-caddy
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      babyshare:
+        condition: service_healthy
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL in .env}
+      PUBLIC_HOST: ${PUBLIC_HOST:?Set PUBLIC_HOST in .env}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

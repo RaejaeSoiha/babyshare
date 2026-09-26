@@ -1,0 +1,65 @@
+name: Deploy BabyShare
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: babyshare-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to production host
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    if: ${{ vars.DEPLOY_ENABLED == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            npm-shrinkwrap.json
+            client/package-lock.json
+
+      - name: Install and verify source
+        run: |
+          npm ci
+          npm --prefix client ci
+          node scripts/validate-production-config.js
+          npm test
+          npm --prefix client run lint
+          npm run build
+
+      - name: Configure deploy host trust
+        env:
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          test -n "$DEPLOY_KNOWN_HOSTS"
+          test -n "$DEPLOY_SSH_KEY"
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+      - name: Update and restart production services
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_USER"
+          test -n "$DEPLOY_PATH"
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" \
+            "cd '$DEPLOY_PATH' && git fetch --prune origin main && git checkout --detach origin/main && docker compose -f docker-compose.production.yml up -d --build --remove-orphans && curl --fail --retry 12 --retry-delay 2 http://127.0.0.1:3000/healthz"

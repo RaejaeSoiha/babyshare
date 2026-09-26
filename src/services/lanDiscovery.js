@@ -16,10 +16,11 @@ function validPeer(payload) {
     && /^[a-f0-9-]{16,64}$/i.test(payload.id)
     && Number.isInteger(payload.port)
     && payload.port > 0
-    && payload.port <= 65535;
+    && payload.port <= 65535
+    && (payload.protocol === "http" || payload.protocol === "https");
 }
 
-function startLanDiscovery({ servicePort }) {
+function startLanDiscovery({ servicePort, serviceProtocol = "http" }) {
   const id = crypto.randomUUID();
   const socket = dgram.createSocket({ type: "udp4", reuseAddr: true });
   const peers = new Map();
@@ -31,6 +32,7 @@ function startLanDiscovery({ servicePort }) {
     const message = Buffer.from(JSON.stringify({
       id,
       port: servicePort,
+      protocol: serviceProtocol,
       sentAt: Date.now(),
       type: "babyshare-lan/1",
     }));
@@ -42,7 +44,7 @@ function startLanDiscovery({ servicePort }) {
     try {
       const peer = JSON.parse(message.toString("utf8"));
       if (!validPeer(peer) || peer.id === id) return;
-      peers.set(peer.id, { address: remote.address, port: peer.port, seenAt: Date.now() });
+      peers.set(peer.id, { address: remote.address, port: peer.port, protocol: peer.protocol, seenAt: Date.now() });
     } catch {
       // Ignore unrelated multicast traffic.
     }
