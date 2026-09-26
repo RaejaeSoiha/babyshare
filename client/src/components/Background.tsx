@@ -74,7 +74,7 @@ export default function Background() {
     }
 
     const drawGrid = (timestamp: number) => {
-      const spacing = width < 680 ? 92 : 120;
+      const spacing = width < 680 ? 40 : 48;
       const horizontalShift = reduceMotion ? 0 : (timestamp * 0.005) % spacing;
       const verticalShift = reduceMotion ? 0 : (timestamp * 0.0035) % spacing;
       context.lineWidth = 0.55;
