@@ -2872,6 +2872,7 @@ a {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  height: auto;
   min-height: 42px;
   padding: 0 12px;
   border: 1px solid rgba(91, 201, 249, 0.42);
@@ -2880,7 +2881,6 @@ a {
   box-shadow: 0 14px 36px rgba(0, 7, 19, 0.34);
   color: #dff4ff;
   cursor: pointer;
-  touch-action: none;
   font: inherit;
   font-size: 0.74rem;
   font-weight: 720;
@@ -3041,6 +3041,13 @@ a {
   gap: 16px;
   padding: 20px 21px 16px;
   border-bottom: 1px solid rgba(143, 203, 242, 0.14);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.nearby-detail-header:active {
+  cursor: grabbing;
 }
 
 .nearby-detail-user {
@@ -3594,11 +3601,22 @@ a {
   gap: 10px;
   padding: 15px;
   border-bottom: 1px solid rgba(143, 203, 242, 0.14);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.workspace-chat-header:active {
+  cursor: grabbing;
 }
 
 .workspace-chat-header > div {
   min-width: 0;
   flex: 1;
+}
+
+.workspace-chat-title {
+  cursor: inherit;
 }
 
 .workspace-chat-header p,

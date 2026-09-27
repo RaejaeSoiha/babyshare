@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent } from "react";
+import type { FormEvent, PointerEvent } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useLanTransfers } from "./LanTransfers";
 import { apiFetch } from "../lib/api";
@@ -28,6 +28,9 @@ export default function WorkspaceChatDock() {
   const [selectedPeerId, setSelectedPeerId] = useState("");
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
+  const [dockPosition, setDockPosition] = useState<{ left: number; top: number } | null>(null);
+  const [isCompactViewport, setIsCompactViewport] = useState(() => typeof window !== "undefined" && window.innerWidth <= 680);
+  const dockDragRef = useRef<{ height: number; left: number; offsetX: number; offsetY: number; pointerId: number; top: number; width: number } | null>(null);
   const {
     acceptChat,
     chats,
@@ -47,6 +50,13 @@ export default function WorkspaceChatDock() {
       .then((response) => active && setIsSignedIn(response.ok))
       .catch(() => active && setIsSignedIn(false));
     return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    const updateViewport = () => setIsCompactViewport(window.innerWidth <= 680);
+    updateViewport();
+    window.addEventListener("resize", updateViewport);
+    return () => window.removeEventListener("resize", updateViewport);
   }, []);
 
   const sortedUsers = useMemo(() => [...devices].sort((left, right) => {
@@ -121,14 +131,50 @@ export default function WorkspaceChatDock() {
     }
   };
 
+  const startMovingDock = (event: PointerEvent<HTMLElement>) => {
+    if (event.button !== 0 || isCompactViewport) return;
+    const dock = event.currentTarget.closest(".workspace-chat-dock") as HTMLElement | null;
+    if (!dock) return;
+    const rect = dock.getBoundingClientRect();
+    dockDragRef.current = {
+      height: rect.height,
+      left: rect.left,
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
+      pointerId: event.pointerId,
+      top: rect.top,
+      width: rect.width,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const moveDock = (event: PointerEvent<HTMLElement>) => {
+    const drag = dockDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const left = Math.round(Math.min(Math.max(12, event.clientX - drag.offsetX), window.innerWidth - drag.width - 12));
+    const top = Math.round(Math.min(Math.max(12, event.clientY - drag.offsetY), window.innerHeight - drag.height - 12));
+    setDockPosition({ left, top });
+  };
+
+  const stopMovingDock = (event: PointerEvent<HTMLElement>) => {
+    const drag = dockDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    dockDragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+
+  const dockStyle = dockPosition && !isCompactViewport
+    ? { bottom: "auto", left: dockPosition.left, right: "auto", top: dockPosition.top, transform: "none" }
+    : undefined;
+
   return isOpen ? (
-    <aside className="workspace-chat-dock" aria-label="Nearby Users chat">
+    <aside className="workspace-chat-dock" style={dockStyle} aria-label="Nearby Users chat">
       {selectedPeerId ? (
         <>
-          <header className="workspace-chat-header">
-            <button type="button" className="workspace-chat-back" onClick={() => setSelectedPeerId("")} aria-label="Back to Nearby Users"><BackIcon /></button>
-            <div><p>Nearby User</p><strong>{selectedName}</strong></div>
-            <button type="button" className="workspace-chat-minimize" onClick={() => setIsOpen(false)} aria-label="Minimize chat">−</button>
+          <header className="workspace-chat-header" onPointerDown={startMovingDock} onPointerMove={moveDock} onPointerUp={stopMovingDock} onPointerCancel={stopMovingDock} title="Drag to move chat">
+            <button type="button" className="workspace-chat-back" onPointerDown={(event) => event.stopPropagation()} onClick={() => setSelectedPeerId("")} aria-label="Back to Nearby Users"><BackIcon /></button>
+            <div className="workspace-chat-title"><p>Nearby User</p><strong>{selectedName}</strong></div>
+            <button type="button" className="workspace-chat-minimize" onPointerDown={(event) => event.stopPropagation()} onClick={() => setIsOpen(false)} aria-label="Minimize chat">−</button>
           </header>
           <div className="workspace-chat-thread">
             {selectedChat?.status === "active" ? (
@@ -154,10 +200,10 @@ export default function WorkspaceChatDock() {
         </>
       ) : (
         <>
-          <header className="workspace-chat-header">
+          <header className="workspace-chat-header" onPointerDown={startMovingDock} onPointerMove={moveDock} onPointerUp={stopMovingDock} onPointerCancel={stopMovingDock} title="Drag to move Nearby Users">
             <span className="workspace-chat-icon"><UsersIcon /></span>
-            <div><p>Company LAN</p><strong>Nearby Users <small>{devices.length} online</small></strong></div>
-            <button type="button" className="workspace-chat-minimize" onClick={() => setIsOpen(false)} aria-label="Minimize Nearby Users">−</button>
+            <div className="workspace-chat-title"><p>Company LAN</p><strong>Nearby Users <small>{devices.length} online</small></strong></div>
+            <button type="button" className="workspace-chat-minimize" onPointerDown={(event) => event.stopPropagation()} onClick={() => setIsOpen(false)} aria-label="Minimize Nearby Users">−</button>
           </header>
           <div className="workspace-chat-users" aria-live="polite">
             {sortedUsers.length === 0 ? <p>No colleagues are online yet.</p> : sortedUsers.map((user) => {

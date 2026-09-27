@@ -107,9 +107,10 @@ export default function Home() {
   const [isNearbyDetailOpen, setIsNearbyDetailOpen] = useState(false);
   const [isNearbyPanelOpen, setIsNearbyPanelOpen] = useState(true);
   const [nearbyPanelPosition, setNearbyPanelPosition] = useState<{ left: number; top: number } | null>(null);
+  const [nearbyDetailPosition, setNearbyDetailPosition] = useState<{ left: number; top: number } | null>(null);
   const [isCompactViewport, setIsCompactViewport] = useState(() => typeof window !== "undefined" && window.innerWidth <= 680);
   const nearbyPanelDragRef = useRef<{ height: number; left: number; offsetX: number; offsetY: number; pointerId: number; top: number; width: number } | null>(null);
-  const nearbyPanelWasDraggedRef = useRef(false);
+  const nearbyDetailDragRef = useRef<{ height: number; left: number; offsetX: number; offsetY: number; pointerId: number; top: number; width: number } | null>(null);
   const {
     acceptChat,
     chats,
@@ -391,7 +392,7 @@ export default function Home() {
 
   const startMovingNearbyPanel = (event: PointerEvent<HTMLElement>) => {
     if (event.button !== 0 || isCompactViewport) return;
-    const panel = event.currentTarget.closest(".nearby-users-panel, .nearby-users-tab") as HTMLElement | null;
+    const panel = event.currentTarget.closest(".nearby-users-panel") as HTMLElement | null;
     if (!panel) return;
     const rect = panel.getBoundingClientRect();
     nearbyPanelDragRef.current = {
@@ -403,7 +404,6 @@ export default function Home() {
       top: rect.top,
       width: rect.width,
     };
-    nearbyPanelWasDraggedRef.current = false;
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
@@ -412,7 +412,6 @@ export default function Home() {
     if (!drag || drag.pointerId !== event.pointerId) return;
     const left = Math.round(Math.min(Math.max(12, event.clientX - drag.offsetX), window.innerWidth - drag.width - 12));
     const top = Math.round(Math.min(Math.max(12, event.clientY - drag.offsetY), window.innerHeight - drag.height - 12));
-    if (Math.abs(left - drag.left) > 3 || Math.abs(top - drag.top) > 3) nearbyPanelWasDraggedRef.current = true;
     setNearbyPanelPosition({ left, top });
   };
 
@@ -423,11 +422,39 @@ export default function Home() {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
+  const startMovingNearbyDetail = (event: PointerEvent<HTMLElement>) => {
+    if (event.button !== 0 || isCompactViewport) return;
+    const dialog = event.currentTarget.closest(".nearby-detail-dialog") as HTMLElement | null;
+    if (!dialog) return;
+    const rect = dialog.getBoundingClientRect();
+    nearbyDetailDragRef.current = {
+      height: rect.height,
+      left: rect.left,
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
+      pointerId: event.pointerId,
+      top: rect.top,
+      width: rect.width,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const moveNearbyDetail = (event: PointerEvent<HTMLElement>) => {
+    const drag = nearbyDetailDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const left = Math.round(Math.min(Math.max(12, event.clientX - drag.offsetX), window.innerWidth - drag.width - 12));
+    const top = Math.round(Math.min(Math.max(12, event.clientY - drag.offsetY), window.innerHeight - drag.height - 12));
+    setNearbyDetailPosition({ left, top });
+  };
+
+  const stopMovingNearbyDetail = (event: PointerEvent<HTMLElement>) => {
+    const drag = nearbyDetailDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    nearbyDetailDragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+
   const restoreNearbyPanel = () => {
-    if (nearbyPanelWasDraggedRef.current) {
-      nearbyPanelWasDraggedRef.current = false;
-      return;
-    }
     // A minimized panel always returns to the visible lower-right corner.
     // The expanded panel remains draggable, but it can never be reopened off-screen.
     setNearbyPanelPosition(null);
@@ -442,7 +469,10 @@ export default function Home() {
   };
 
   const nearbyPanelStyle = nearbyPanelPosition && !isCompactViewport
-    ? { left: nearbyPanelPosition.left, right: "auto", top: nearbyPanelPosition.top, transform: "none" }
+    ? { bottom: "auto", left: nearbyPanelPosition.left, right: "auto", top: nearbyPanelPosition.top, transform: "none" }
+    : undefined;
+  const nearbyDetailStyle = nearbyDetailPosition && !isCompactViewport
+    ? { bottom: "auto", left: nearbyDetailPosition.left, right: "auto", top: nearbyDetailPosition.top, transform: "none" }
     : undefined;
 
   return (
@@ -538,8 +568,8 @@ export default function Home() {
 
               </div>
               {isNearbyDetailOpen && selectedDevice && createPortal(
-                  <section className="nearby-detail-dialog" role="dialog" aria-labelledby="nearby-detail-title">
-                    <header className="nearby-detail-header">
+                  <section className="nearby-detail-dialog" style={nearbyDetailStyle} role="dialog" aria-labelledby="nearby-detail-title">
+                    <header className="nearby-detail-header" onPointerDown={startMovingNearbyDetail} onPointerMove={moveNearbyDetail} onPointerUp={stopMovingNearbyDetail} onPointerCancel={stopMovingNearbyDetail} title="Drag to move chat">
                       <div className="nearby-detail-user">
                         <span className="nearby-user-avatar is-large" aria-hidden="true">{avatarInitial(selectedDevice.displayName)}</span>
                         <div>
@@ -548,7 +578,7 @@ export default function Home() {
                           <p>{selectedDevice.displayName === "Guest" ? `Guest • ${selectedDevice.deviceName}` : selectedDevice.deviceName} <span className="nearby-detail-online"><span aria-hidden="true" />Online</span></p>
                         </div>
                       </div>
-                      <button type="button" className="nearby-detail-close" onClick={closeNearbyDetail} aria-label="Close nearby user details">×</button>
+                      <button type="button" className="nearby-detail-close" onPointerDown={(event) => event.stopPropagation()} onClick={closeNearbyDetail} aria-label="Close nearby user details">×</button>
                     </header>
 
                     <div className="nearby-detail-body">
@@ -722,12 +752,7 @@ export default function Home() {
         <button
           type="button"
           className="nearby-users-tab"
-          style={nearbyPanelStyle}
           onClick={restoreNearbyPanel}
-          onPointerDown={startMovingNearbyPanel}
-          onPointerMove={moveNearbyPanel}
-          onPointerUp={stopMovingNearbyPanel}
-          onPointerCancel={stopMovingNearbyPanel}
           aria-label="Open Nearby Users"
         >
           <UsersIcon />
