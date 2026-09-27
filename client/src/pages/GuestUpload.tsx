@@ -146,7 +146,8 @@ export default function GuestUpload() {
             </div>
             <details className="guest-qr-details">
               <summary>Show QR code</summary>
-              <img src={result.qrCode} alt="QR code for the shared file" />
+              {result.passwordRequired && <p>On a phone, scan, open the link, then enter the password to preview or download.</p>}
+              <img src={result.qrCode} alt={result.passwordRequired ? "QR code for the password-protected shared file" : "QR code to download the shared file"} />
             </details>
             {error && <p className="guest-upload-error" role="alert">{error}</p>}
           </section>

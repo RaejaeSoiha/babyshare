@@ -45,8 +45,8 @@ function renderPasswordPrompt({ title, filename, actionUrl, hiddenFields = {}, e
         ${fields}
         <label>Password <input type="password" name="password" autocomplete="current-password" required maxlength="128"></label>
         <div class="actions">
-          <button type="submit" name="action" value="preview">Preview</button>
-          <button class="alt" type="submit" name="action" value="download">Download</button>
+          <button type="submit" name="action" value="preview">Preview in browser</button>
+          <button class="alt" type="submit" name="action" value="download">Download file</button>
         </div>
       </form>`
   );
@@ -58,8 +58,8 @@ function renderGuestAccess({ filename, previewUrl, downloadUrl }) {
     `<h1>Guest access</h1>
       <p>${escapeHtml(filename)}</p>
       <div class="actions">
-        <a href="${escapeHtml(previewUrl)}">Preview</a>
-        <a class="alt" href="${escapeHtml(downloadUrl)}">Download</a>
+        <a href="${escapeHtml(previewUrl)}">Preview in browser</a>
+        <a class="alt" href="${escapeHtml(downloadUrl)}">Download file</a>
       </div>`
   );
 }

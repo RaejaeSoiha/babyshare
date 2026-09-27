@@ -5,6 +5,7 @@ const path = require("path");
 const multer = require("multer");
 const bcrypt = require("bcryptjs");
 const QRCode = require("qrcode");
+const { canPreview } = require("../services/storage");
 const { isValidAction, isValidLabel, isValidPassword, isValidUploadName } = require("../utils/security");
 
 const FILE_SIZE_LIMIT = 1024 * 1024 * 1024;
@@ -96,6 +97,11 @@ module.exports = function registerGuestRoutes(app, deps) {
       const previewPath = downloadPath(token, "preview");
       const downloadPathname = downloadPath(token, "download");
       const link = `${getShareBaseUrl()}${sharePath}`;
+      // A passwordless QR scan opens viewable media straight in the phone's
+      // browser. Other file types download immediately. Password-protected
+      // shares keep the access-page URL so the recipient is prompted first.
+      const qrTarget = canPreview(req.file.originalname) ? previewPath : downloadPathname;
+      const qrLink = hash ? link : `${getShareBaseUrl()}${qrTarget}`;
       return res.status(201).json({
         downloadPath: downloadPathname,
         expires,
@@ -103,7 +109,7 @@ module.exports = function registerGuestRoutes(app, deps) {
         link,
         passwordRequired: Boolean(hash),
         previewPath,
-        qrCode: await QRCode.toDataURL(link),
+        qrCode: await QRCode.toDataURL(qrLink),
         sharePath,
       });
     } catch (error) {

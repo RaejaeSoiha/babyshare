@@ -1047,6 +1047,13 @@ a {
   cursor: pointer;
 }
 
+.guest-qr-details p {
+  max-width: 290px;
+  margin: 12px auto 0;
+  color: #a9c9e2;
+  line-height: 1.45;
+}
+
 .guest-qr-details img {
   display: block;
   width: 152px;

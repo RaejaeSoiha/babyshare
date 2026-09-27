@@ -5,7 +5,6 @@ const { isValidUploadName, resolveWithin } = require("../utils/security");
 
 const DEVICE_TTL_MS = 45_000;
 const CHAT_PENDING_TTL_MS = 10 * 60 * 1000;
-const CHAT_TTL_MS = 30 * 60 * 1000;
 const PENDING_TTL_MS = 10 * 60 * 1000;
 const ACCEPTED_TTL_MS = 20 * 60 * 1000;
 const READY_TTL_MS = 24 * 60 * 60 * 1000;
@@ -446,8 +445,20 @@ class LanTransferService {
       if (device.updatedAt + DEVICE_TTL_MS < now) this.devices.delete(id);
     }
     for (const [id, chat] of this.chats) {
-      const ttl = chat.status === "pending" ? CHAT_PENDING_TTL_MS : CHAT_TTL_MS;
-      if (chat.updatedAt + ttl < now) this.chats.delete(id);
+      if (chat.status === "pending" && chat.updatedAt + CHAT_PENDING_TTL_MS < now) {
+        this.chats.delete(id);
+        continue;
+      }
+      if (chat.status === "active") {
+        const sender = this.devices.get(chat.senderId);
+        const recipient = this.devices.get(chat.recipientId);
+        // An accepted chat remains available for as long as both participants
+        // keep their BabyShare presence alive. It is removed when either user
+        // explicitly ends it or genuinely leaves the nearby network.
+        if (!sender || !recipient || sender.updatedAt + DEVICE_TTL_MS < now || recipient.updatedAt + DEVICE_TTL_MS < now) {
+          this.chats.delete(id);
+        }
+      }
     }
     for (const [id, transfer] of this.transfers) {
       const ttl = transfer.status === "pending"

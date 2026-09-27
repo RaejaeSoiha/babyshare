@@ -82,6 +82,24 @@ async function fetchApp(pathname, options = {}) {
   return fetch(`${baseUrl}${pathname}`, options);
 }
 
+async function createGuestShare({
+  contents = "iPhone QR transfer",
+  filename = "phone-share.txt",
+  password = "",
+  type = "text/plain",
+} = {}) {
+  const form = new FormData();
+  form.append("file", new Blob([contents], { type }), filename);
+  if (password) form.append("password", password);
+  const response = await fetchApp("/guest-upload", {
+    body: form,
+    headers: { Origin: baseUrl },
+    method: "POST",
+  });
+  assert.equal(response.status, 201);
+  return response.json();
+}
+
 async function login(username, password) {
   const response = await fetchApp("/login", {
     body: new URLSearchParams({ password, username }),
@@ -187,6 +205,47 @@ test("password-protected shares display a prompt and serve only after validation
   assert.equal(await accepted.text(), "protected-content");
 });
 
+test("QR share links download passwordless files and protect password-gated files", async () => {
+  const passwordless = await createGuestShare();
+  const passwordlessToken = new URL(passwordless.link).searchParams.get("token");
+  assert.ok(passwordlessToken);
+
+  const directDownload = await fetchApp(`/guest-download?token=${passwordlessToken}&action=download`);
+  assert.equal(directDownload.status, 200);
+  assert.match(directDownload.headers.get("content-disposition") || "", /attachment/i);
+  assert.equal(await directDownload.text(), "iPhone QR transfer");
+
+  const photo = await createGuestShare({
+    contents: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL8mQAAAABJRU5ErkJggg==", "base64"),
+    filename: "phone-photo.png",
+    type: "image/png",
+  });
+  const photoToken = new URL(photo.link).searchParams.get("token");
+  assert.ok(photoToken);
+
+  const photoPreview = await fetchApp(`/guest-download?token=${photoToken}&action=preview`);
+  assert.equal(photoPreview.status, 200);
+  assert.match(photoPreview.headers.get("content-disposition") || "", /inline/i);
+  assert.equal(photoPreview.headers.get("content-type"), "image/png");
+
+  const protectedShare = await createGuestShare({ password: "1234" });
+  const protectedToken = new URL(protectedShare.link).searchParams.get("token");
+  assert.ok(protectedToken);
+
+  const passwordPrompt = await fetchApp(`/guest-view?token=${protectedToken}`);
+  assert.equal(passwordPrompt.status, 200);
+  assert.match(await passwordPrompt.text(), /Password required/);
+
+  const preview = await fetchApp("/guest-login", {
+    body: new URLSearchParams({ action: "preview", password: "1234", token: protectedToken }),
+    headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: baseUrl },
+    method: "POST",
+  });
+  assert.equal(preview.status, 200);
+  assert.match(preview.headers.get("content-disposition") || "", /inline/i);
+  assert.equal(await preview.text(), "iPhone QR transfer");
+});
+
 test("registration blocks traversal usernames and state changes require a same-origin request", async () => {
   const traversal = await fetchApp("/register", {
     body: new URLSearchParams({ password: "valid-password-123", username: "../../escape" }),
@@ -237,6 +296,54 @@ test("CORS admits only the configured frontend origin and allows device credenti
     method: "OPTIONS",
   });
   assert.equal(rejected.status, 403);
+});
+
+test("LAN polling keeps a separate request budget for each active device", async () => {
+  const first = lanIdentity();
+  const second = lanIdentity();
+  await announceLanDevice(first);
+  await announceLanDevice(second);
+
+  for (let index = 0; index < 100; index += 1) {
+    const firstPoll = await fetchApp("/api/lan/devices", { headers: lanHeaders(first, false) });
+    const secondPoll = await fetchApp("/api/lan/devices", { headers: lanHeaders(second, false) });
+    assert.equal(firstPoll.status, 200);
+    assert.equal(secondPoll.status, 200);
+  }
+});
+
+test("an active LAN chat remains available while both participants stay online", async () => {
+  const sender = lanIdentity();
+  const recipient = lanIdentity();
+  await announceLanDevice(sender);
+  await announceLanDevice(recipient);
+
+  const requested = await fetchApp("/api/lan/chats/request", {
+    body: JSON.stringify({ recipientId: recipient.deviceId }),
+    headers: lanHeaders(sender),
+    method: "POST",
+  });
+  assert.equal(requested.status, 201);
+  const chat = (await requested.json()).chat;
+
+  const accepted = await fetchApp(`/api/lan/chats/${chat.id}/accept`, {
+    body: JSON.stringify({}),
+    headers: lanHeaders(recipient),
+    method: "POST",
+  });
+  assert.equal(accepted.status, 200);
+
+  const realNow = Date.now;
+  Date.now = () => realNow() + (31 * 60 * 1000);
+  try {
+    await announceLanDevice(sender);
+    await announceLanDevice(recipient);
+    const chats = await fetchApp("/api/lan/chats", { headers: lanHeaders(sender, false) });
+    assert.equal(chats.status, 200);
+    assert.equal((await chats.json()).chats.find((item) => item.id === chat.id)?.status, "active");
+  } finally {
+    Date.now = realNow;
+  }
 });
 
 test("LAN chat and recipient-approved direct transfers are available immediately and erased after use", async () => {

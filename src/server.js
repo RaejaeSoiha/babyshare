@@ -71,6 +71,18 @@ function configuredOrigins() {
     });
 }
 
+function lanRateLimitKey(req) {
+  // Vite and reverse proxies can make every browser appear to originate from
+  // one address. Pair the address with the short-lived LAN device identity so
+  // one active browser cannot exhaust the presence budget for its colleagues.
+  const body = req.body && typeof req.body === "object" ? req.body : {};
+  const deviceId = req.get("x-babyshare-device-id") || body.deviceId || req.query?.deviceId;
+  if (typeof deviceId === "string" && /^[a-z0-9_-]{16,96}$/i.test(deviceId)) {
+    return `lan:${req.ip || "unknown"}:${deviceId}`;
+  }
+  return `lan:${req.ip || "unknown"}`;
+}
+
 function createCorsMiddleware(allowedOrigins) {
   const allowed = new Set(allowedOrigins);
   return (req, res, next) => {
@@ -318,7 +330,10 @@ function createApp() {
   cleanupTimer.unref();
 
   const loginLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 10 });
-  const lanLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 180 });
+  // Presence refreshes make four requests per second, and an active WebRTC
+  // transfer also polls for short-lived negotiation signals. Keep this limit
+  // comfortably above normal usage while still constraining each device.
+  const lanLimiter = createRateLimiter({ key: lanRateLimitKey, windowMs: 60 * 1000, max: 600 });
   const uploadLimiter = createRateLimiter({ windowMs: 60 * 60 * 1000, max: 30 });
   const passwordLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 10 });
 
