@@ -152,6 +152,21 @@ export default function Home() {
     return () => window.removeEventListener("resize", updateViewport);
   }, []);
 
+  useEffect(() => {
+    const openRequestedChat = (event: Event) => {
+      const peerId = (event as CustomEvent<{ peerId?: string }>).detail?.peerId;
+      if (!peerId || !devices.some((device) => device.id === peerId)) return;
+      setSelectedDeviceId(peerId);
+      setNearbyFiles([]);
+      setNearbyError("");
+      setChatDraft("");
+      setIsNearbyPanelOpen(false);
+      setIsNearbyDetailOpen(true);
+    };
+    window.addEventListener("babyshare:open-chat", openRequestedChat);
+    return () => window.removeEventListener("babyshare:open-chat", openRequestedChat);
+  }, [devices]);
+
   const isSignedIn = Boolean(account);
   const guestPreviewPath = guestResult ? localGuestPath(guestResult, "preview") : "";
   const guestDownloadPath = guestResult ? localGuestPath(guestResult, "download") : "";

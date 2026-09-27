@@ -3386,9 +3386,9 @@ a {
 
 .lan-notifications {
   position: fixed;
-  z-index: 6;
+  z-index: 40;
   right: 20px;
-  bottom: 20px;
+  top: 20px;
   display: grid;
   width: min(360px, calc(100% - 32px));
   gap: 10px;
@@ -3404,6 +3404,75 @@ a {
     radial-gradient(115% 140% at 0% 0%, rgba(45, 158, 231, 0.16), transparent 62%),
     rgba(8, 24, 43, 0.96);
   box-shadow: 0 18px 40px rgba(0, 7, 19, 0.45);
+}
+
+.lan-message-notification {
+  gap: 9px;
+  padding: 12px;
+  border-color: rgba(93, 214, 255, 0.56);
+}
+
+.lan-message-heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+}
+
+.lan-message-heading > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.lan-message-heading .lan-notification-kicker {
+  margin-bottom: 2px;
+}
+
+.lan-message-avatar {
+  display: grid;
+  width: 31px;
+  height: 31px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(105, 214, 255, 0.42);
+  border-radius: 50%;
+  background: linear-gradient(145deg, rgba(39, 136, 214, 0.8), rgba(35, 190, 221, 0.56));
+  color: #f2fbff;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.lan-message-close {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(151, 202, 239, 0.24);
+  border-radius: 8px;
+  background: rgba(9, 29, 50, 0.68);
+  color: #bcd8ed;
+  cursor: pointer;
+  font: inherit;
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+.lan-message-close:hover {
+  border-color: rgba(132, 220, 255, 0.68);
+  color: #effaff;
+}
+
+.lan-message-preview {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.lan-message-open {
+  min-height: 35px;
+  width: 100%;
 }
 
 .lan-notification strong {
@@ -3517,7 +3586,7 @@ a {
 
   .lan-notifications {
     right: 16px;
-    bottom: 16px;
+    top: 16px;
   }
 }
 

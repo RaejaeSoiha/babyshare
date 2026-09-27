@@ -59,6 +59,19 @@ export default function WorkspaceChatDock() {
     return () => window.removeEventListener("resize", updateViewport);
   }, []);
 
+  useEffect(() => {
+    if (!isWorkspaceRoute) return;
+    const openRequestedChat = (event: Event) => {
+      const peerId = (event as CustomEvent<{ peerId?: string }>).detail?.peerId;
+      if (!peerId) return;
+      setSelectedPeerId(peerId);
+      setIsOpen(true);
+      setError("");
+    };
+    window.addEventListener("babyshare:open-chat", openRequestedChat);
+    return () => window.removeEventListener("babyshare:open-chat", openRequestedChat);
+  }, [isWorkspaceRoute]);
+
   const sortedUsers = useMemo(() => [...devices].sort((left, right) => {
     const leftChat = chats.find((chat) => chat.peerId === left.id && chat.status === "active");
     const rightChat = chats.find((chat) => chat.peerId === right.id && chat.status === "active");

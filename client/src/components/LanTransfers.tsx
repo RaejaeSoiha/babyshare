@@ -20,6 +20,13 @@ export type LanChat = {
   status: "pending" | "active";
   updatedAt: number;
 };
+export type LanMessageNotification = {
+  chatId: string;
+  id: string;
+  peerId: string;
+  peerName: string;
+  text: string;
+};
 export type LanTransfer = {
   createdAt: number;
   direction: "incoming" | "outgoing";
@@ -48,6 +55,8 @@ type LanTransferContextValue = {
   acceptTransfer: (transferId: string) => Promise<void>;
   declineTransfer: (transferId: string) => Promise<void>;
   downloadTransfer: (transfer: LanTransfer) => void;
+  dismissMessageNotification: (messageId: string) => void;
+  messageNotifications: LanMessageNotification[];
 };
 
 const LanTransferContext = createContext<LanTransferContextValue | null>(null);
@@ -94,10 +103,12 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
   const pendingFilesRef = useRef(new Map<string, File>());
   const uploadsInFlightRef = useRef(new Set<string>());
   const knownMessageIdsRef = useRef(new Set<string>());
+  const hasMessageBaselineRef = useRef(false);
   const [devices, setDevices] = useState<LanDevice[]>([]);
   const [chats, setChats] = useState<LanChat[]>([]);
   const [transfers, setTransfers] = useState<LanTransfer[]>([]);
   const [unreadChatIds, setUnreadChatIds] = useState<string[]>([]);
+  const [messageNotifications, setMessageNotifications] = useState<LanMessageNotification[]>([]);
   const [error, setError] = useState("");
 
   const deviceHeaders = useCallback(() => ({
@@ -123,18 +134,36 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
     const chatPayload = await chatsResponse.json() as { chats: LanChat[] };
     const transferPayload = await transfersResponse.json() as { transfers: LanTransfer[] };
     setDevices(devicePayload.devices);
+    const canNotifyForMessages = hasMessageBaselineRef.current;
+    const newlyReceivedMessages: LanMessageNotification[] = [];
+    for (const chat of chatPayload.chats) {
+      for (const message of chat.messages) {
+        if (!message.mine && !knownMessageIdsRef.current.has(message.id)) {
+          newlyReceivedMessages.push({
+            chatId: chat.id,
+            id: message.id,
+            peerId: chat.peerId,
+            peerName: chat.peerName,
+            text: message.text,
+          });
+        }
+        knownMessageIdsRef.current.add(message.id);
+      }
+    }
     setChats(chatPayload.chats);
     setUnreadChatIds((current) => {
       const activeChatIds = new Set(chatPayload.chats.map((chat) => chat.id));
       const next = new Set(current.filter((chatId) => activeChatIds.has(chatId)));
-      for (const chat of chatPayload.chats) {
-        for (const message of chat.messages) {
-          if (!message.mine && !knownMessageIdsRef.current.has(message.id)) next.add(chat.id);
-          knownMessageIdsRef.current.add(message.id);
-        }
-      }
+      newlyReceivedMessages.forEach((message) => next.add(message.chatId));
       return [...next];
     });
+    hasMessageBaselineRef.current = true;
+    if (canNotifyForMessages && newlyReceivedMessages.length > 0) {
+      setMessageNotifications((current) => [
+        ...newlyReceivedMessages.reverse(),
+        ...current.filter((notification) => !newlyReceivedMessages.some((message) => message.id === notification.id)),
+      ].slice(0, 50));
+    }
     setTransfers(transferPayload.transfers);
     setError("");
   }, [deviceHeaders, identity]);
@@ -216,11 +245,17 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
     if (!response.ok) throw new Error("chat_end_failed");
     setChats((current) => current.filter((chat) => chat.id !== chatId));
     setUnreadChatIds((current) => current.filter((unreadChatId) => unreadChatId !== chatId));
+    setMessageNotifications((current) => current.filter((notification) => notification.chatId !== chatId));
     setError("");
   }, [deviceHeaders]);
 
   const markChatRead = useCallback((chatId: string) => {
     setUnreadChatIds((current) => current.filter((unreadChatId) => unreadChatId !== chatId));
+    setMessageNotifications((current) => current.filter((notification) => notification.chatId !== chatId));
+  }, []);
+
+  const dismissMessageNotification = useCallback((messageId: string) => {
+    setMessageNotifications((current) => current.filter((notification) => notification.id !== messageId));
   }, []);
 
   const requestTransfers = useCallback(async (recipientId: string, files: File[]) => {
@@ -322,10 +357,12 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
       chats,
       declineTransfer,
       devices,
+      dismissMessageNotification,
       downloadTransfer,
       endChat,
       error,
       markChatRead,
+      messageNotifications,
       requestChat,
       requestTransfers,
       sendChatMessage,
@@ -358,16 +395,54 @@ export function LanTransferNotifications() {
     chats,
     declineTransfer,
     downloadTransfer,
+    dismissMessageNotification,
     endChat,
+    messageNotifications,
     transfers,
   } = useLanTransfers();
   const incomingChats = chats.filter((chat) => chat.direction === "incoming" && chat.status === "pending").slice(0, 3);
   const incomingTransfers = transfers.filter((transfer) => transfer.direction === "incoming"
     && ["pending", "accepted", "receiving", "ready"].includes(transfer.status)).slice(0, 3);
-  if (incomingChats.length === 0 && incomingTransfers.length === 0) return null;
+  const messageGroups: Array<{ chatId: string; messages: LanMessageNotification[]; peerId: string; peerName: string }> = [];
+  messageNotifications.forEach((message) => {
+    const group = messageGroups.find((candidate) => candidate.chatId === message.chatId);
+    if (group) group.messages.push(message);
+    else messageGroups.push({ chatId: message.chatId, messages: [message], peerId: message.peerId, peerName: message.peerName });
+  });
+  const openMessage = (message: LanMessageNotification) => {
+    window.dispatchEvent(new CustomEvent("babyshare:open-chat", { detail: { peerId: message.peerId } }));
+    dismissMessageNotification(message.id);
+  };
+  const dismissMessageGroup = (messages: LanMessageNotification[]) => messages.forEach((message) => dismissMessageNotification(message.id));
+
+  useEffect(() => {
+    if (messageNotifications.length === 0) return;
+    const timer = window.setTimeout(() => messageNotifications.forEach((message) => dismissMessageNotification(message.id)), 8_000);
+    return () => window.clearTimeout(timer);
+  }, [dismissMessageNotification, messageNotifications]);
+
+  if (messageNotifications.length === 0 && incomingChats.length === 0 && incomingTransfers.length === 0) return null;
 
   return (
     <aside className="lan-notifications" aria-live="polite" aria-label="Nearby device alerts">
+      {messageGroups.slice(0, 2).map((group) => {
+        const latestMessage = group.messages[0];
+        const messageCount = group.messages.length;
+        return (
+        <section className="lan-notification lan-message-notification" key={group.chatId}>
+          <div className="lan-message-heading">
+            <span className="lan-message-avatar" aria-hidden="true">{group.peerName.trim().charAt(0).toUpperCase() || "G"}</span>
+            <div>
+              <p className="lan-notification-kicker">{messageCount === 1 ? "New message" : `${messageCount} new messages`}</p>
+              <strong>{group.peerName}</strong>
+            </div>
+            <button type="button" className="lan-message-close" onClick={() => dismissMessageGroup(group.messages)} aria-label={`Dismiss messages from ${group.peerName}`}>×</button>
+          </div>
+          <p className="lan-message-preview">{latestMessage.text}</p>
+          <button type="button" className="lan-accept lan-message-open" onClick={() => openMessage(latestMessage)}>Open chat</button>
+        </section>
+        );
+      })}
       {incomingChats.map((chat) => (
         <section className="lan-notification" key={chat.id}>
           <p className="lan-notification-kicker">Private chat request</p>
