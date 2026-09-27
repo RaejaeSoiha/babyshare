@@ -1,7 +1,7 @@
 // Authentication and account registration routes.
 const path = require("path");
 const bcrypt = require("bcryptjs");
-const { isValidPassword, isValidUsername, normalizeUsername } = require("../utils/security");
+const { isValidPassword, isValidUsername, normalizeUsername, PASSWORD_MIN_LENGTH } = require("../utils/security");
 
 module.exports = function registerAuthRoutes(app, deps) {
   const {
@@ -67,7 +67,7 @@ module.exports = function registerAuthRoutes(app, deps) {
       const password = typeof req.body.password === "string" ? req.body.password : "";
       if (!isValidUsername(username) || !isValidPassword(password)) {
         return res.status(400).send(
-          renderError("Invalid account details", "Use a 3-32 character username and a password of at least 12 characters.")
+          renderError("Invalid account details", `Use a 3-32 character username and a password of at least ${PASSWORD_MIN_LENGTH} characters.`)
         );
       }
       if (Object.prototype.hasOwnProperty.call(USERS, username)) {

@@ -120,8 +120,8 @@ export default function Dashboard() {
       if (files.length === 0) setError("Choose at least one file to upload.");
       return;
     }
-    if (password && password.length < 12) {
-      setError("Use at least 12 characters for an upload password.");
+    if (password && password.length < 4) {
+      setError("Use at least 4 characters for an upload password.");
       return;
     }
 
@@ -257,7 +257,7 @@ export default function Dashboard() {
                 </label>
                 <label>
                   Link password <span>optional</span>
-                  <input type="password" value={password} minLength={12} maxLength={128} onChange={(event) => setPassword(event.target.value)} placeholder="12+ characters" />
+                  <input type="password" value={password} minLength={4} maxLength={128} onChange={(event) => setPassword(event.target.value)} placeholder="4+ characters" />
                 </label>
               </div>
 

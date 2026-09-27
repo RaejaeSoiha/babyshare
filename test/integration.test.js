@@ -195,6 +195,21 @@ test("registration blocks traversal usernames and state changes require a same-o
   });
   assert.equal(traversal.status, 400);
 
+  const shortPassword = await fetchApp("/register", {
+    body: new URLSearchParams({ password: "123", username: "shortpass" }),
+    headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: baseUrl },
+    method: "POST",
+  });
+  assert.equal(shortPassword.status, 400);
+
+  const minimumPassword = await fetchApp("/register", {
+    body: new URLSearchParams({ password: "1234", username: "fourpass" }),
+    headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: baseUrl },
+    method: "POST",
+    redirect: "manual",
+  });
+  assert.equal(minimumPassword.status, 302);
+
   const crossOrigin = await fetchApp("/register", {
     body: new URLSearchParams({ password: "valid-password-123", username: "newperson" }),
     headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: "https://attacker.invalid" },

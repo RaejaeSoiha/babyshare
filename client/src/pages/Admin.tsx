@@ -118,7 +118,7 @@ export default function Admin() {
     } catch (createError) {
       setError(createError instanceof Error && createError.message === "user_exists"
         ? "That username is already in use."
-        : "Use a 3–32 character username and a password of at least 12 characters.");
+        : "Use a 3–32 character username and a password of at least 4 characters.");
     } finally {
       setBusyAction("");
     }
@@ -141,7 +141,7 @@ export default function Admin() {
       setResetPassword("");
       setResetTarget(null);
     } catch {
-      setError("Password reset failed. Use at least 12 characters and try again.");
+      setError("Password reset failed. Use at least 4 characters and try again.");
     } finally {
       setBusyAction("");
     }
@@ -231,7 +231,7 @@ export default function Admin() {
               </label>
               <label>
                 Temporary password
-                <input type="password" value={newPass} minLength={12} maxLength={128} onChange={(event) => setNewPass(event.target.value)} placeholder="12+ characters" autoComplete="new-password" required />
+                <input type="password" value={newPass} minLength={4} maxLength={128} onChange={(event) => setNewPass(event.target.value)} placeholder="4+ characters" autoComplete="new-password" required />
               </label>
               <button className="btn btn-guest admin-create-button" type="submit" disabled={busyAction === "create"}>{busyAction === "create" ? "Creating user..." : "Create secure account"}<ArrowIcon /></button>
             </form>
@@ -286,7 +286,7 @@ export default function Admin() {
             <form onSubmit={(event) => void resetUser(event)}>
               <label>
                 New password
-                <input type="password" value={resetPassword} minLength={12} maxLength={128} onChange={(event) => setResetPassword(event.target.value)} placeholder="12+ characters" autoComplete="new-password" autoFocus required />
+                <input type="password" value={resetPassword} minLength={4} maxLength={128} onChange={(event) => setResetPassword(event.target.value)} placeholder="4+ characters" autoComplete="new-password" autoFocus required />
               </label>
               <div className="admin-modal-actions">
                 <button className="btn btn-ghost" type="button" onClick={() => setResetTarget(null)}>Cancel</button>

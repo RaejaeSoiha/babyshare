@@ -117,7 +117,7 @@ export default function GuestUpload() {
               </label>
               <label>
                 <span>Password <em>optional</em></span>
-                <input type="password" name="password" minLength={12} maxLength={128} placeholder="12+ characters" autoComplete="new-password" />
+                <input type="password" name="password" minLength={4} maxLength={128} placeholder="4+ characters" autoComplete="new-password" />
               </label>
               <button type="submit" className="guest-upload-submit" disabled={loading}>
                 {loading ? `Uploading ${progress}%` : "Create share link"}

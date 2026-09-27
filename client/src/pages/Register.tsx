@@ -13,7 +13,7 @@ export default function Register() {
           </label>
           <label>
             Password
-            <input type="password" name="password" minLength={12} maxLength={128} placeholder="Create a 12+ character password" required />
+            <input type="password" name="password" minLength={4} maxLength={128} placeholder="Create a 4+ character password" required />
           </label>
           <button type="submit" className="btn btn-register">Register</button>
         </form>

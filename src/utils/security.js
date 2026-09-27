@@ -3,6 +3,7 @@ const path = require("path");
 
 const USERNAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{2,31}$/;
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
+const PASSWORD_MIN_LENGTH = 4;
 
 function hasOwn(object, key) {
   return Object.prototype.hasOwnProperty.call(object, key);
@@ -17,7 +18,7 @@ function isValidUsername(value) {
 }
 
 function isValidPassword(value) {
-  return typeof value === "string" && value.length >= 12 && value.length <= 128;
+  return typeof value === "string" && value.length >= PASSWORD_MIN_LENGTH && value.length <= 128;
 }
 
 function isValidLabel(value) {
@@ -69,6 +70,7 @@ module.exports = {
   isExpired,
   isValidAction,
   isValidLabel,
+  PASSWORD_MIN_LENGTH,
   isValidPassword,
   isValidUploadName,
   isValidUsername,
