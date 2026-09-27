@@ -382,16 +382,6 @@ export default function Home() {
     }
   };
 
-  const sendQuickChatMessage = async (text: string) => {
-    if (!selectedChat || !text) return;
-    setNearbyError("");
-    try {
-      await sendChatMessage(selectedChat.id, text);
-    } catch {
-      setNearbyError("Could not send that quick reply. Keep the chat open and try again.");
-    }
-  };
-
   const declineIncomingChat = async (chatId: string) => {
     try {
       await endChat(chatId);
@@ -598,7 +588,10 @@ export default function Home() {
                           <p>{selectedDevice.displayName === "Guest" ? `Guest • ${selectedDevice.deviceName}` : selectedDevice.deviceName} <span className="nearby-detail-online"><span aria-hidden="true" />Online</span></p>
                         </div>
                       </div>
-                      <button type="button" className="nearby-detail-close" onPointerDown={(event) => event.stopPropagation()} onClick={closeNearbyDetail} aria-label="Close nearby user details">×</button>
+                      <div className="nearby-detail-actions">
+                        {selectedChat?.status === "active" && <button type="button" className="lan-decline private-chat-end" onPointerDown={(event) => event.stopPropagation()} onClick={() => void endSelectedChat()}>End chat</button>}
+                        <button type="button" className="nearby-detail-close" onPointerDown={(event) => event.stopPropagation()} onClick={closeNearbyDetail} aria-label="Close nearby user details">×</button>
+                      </div>
                     </header>
 
                     <div className="nearby-detail-body">
@@ -612,22 +605,14 @@ export default function Home() {
                       />
                       {selectedChat?.status === "active" ? (
                         <section className="private-chat" aria-label={`Private chat with ${selectedDevice.displayName}`}>
-                          <div className="private-chat-heading">
-                            <p className="private-chat-status"><span aria-hidden="true" />Active now</p>
-                            <button type="button" className="lan-decline private-chat-end" onClick={() => void endSelectedChat()}>End chat</button>
-                          </div>
-                          <div className={`private-chat-messages${selectedChat.messages.length === 0 ? " is-empty" : ""}`} ref={chatMessagesRef} aria-live="polite">
-                            {selectedChat.messages.length === 0 ? <p className="private-chat-empty">Say hello</p> : selectedChat.messages.map((message) => (
+                          {selectedChat.messages.length > 0 && <div className="private-chat-messages" ref={chatMessagesRef} aria-live="polite">
+                            {selectedChat.messages.map((message) => (
                               <div className={`chat-message${message.mine ? " is-mine" : ""}`} key={message.id}>
                                 <span>{message.text}</span>
                                 <time dateTime={new Date(message.sentAt).toISOString()}>{new Date(message.sentAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time>
                               </div>
                             ))}
-                          </div>
-                          <div className="private-chat-quick-replies" aria-label="Quick replies">
-                            <span>Quick reply</span>
-                            {["On it", "Thanks!", "👍", "✅"].map((reply) => <button type="button" key={reply} onClick={() => void sendQuickChatMessage(reply)}>{reply}</button>)}
-                          </div>
+                          </div>}
                           <form className="private-chat-compose" onSubmit={submitChatMessage}>
                             <label className="visually-hidden" htmlFor="private-chat-message">Message</label>
                             <button type="button" className="chat-attachment-button" onClick={() => nearbyInputRef.current?.click()} aria-label="Add files to transfer" title="Add files">+</button>
@@ -639,7 +624,6 @@ export default function Home() {
                             <button type="button" className="chat-file-clear" onClick={clearNearbyFiles} aria-label="Remove selected files">×</button>
                             <button type="button" className="chat-file-send" disabled={nearbySending} onClick={() => void sendToNearbyDevice()}>{nearbySending ? "Sending…" : "Send files"}</button>
                           </div>}
-                          <p className="nearby-privacy-note">Ephemeral · cleared on end</p>
                         </section>
                       ) : (
                         <div className="nearby-compose">

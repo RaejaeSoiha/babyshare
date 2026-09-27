@@ -3181,10 +3181,22 @@ a {
   color: #effaff;
 }
 
+.nearby-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
 .nearby-detail-body {
   display: grid;
   gap: 12px;
   padding: 16px 21px 18px;
+}
+
+.nearby-detail-body:has(.private-chat) {
+  gap: 0;
+  padding: 12px 21px 14px;
 }
 
 .nearby-compose {
@@ -3225,38 +3237,11 @@ a {
 .private-chat,
 .private-chat-pending {
   display: grid;
-  gap: 11px;
+  gap: 8px;
   padding: 0;
 }
 
-.private-chat-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.private-chat-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  color: #9ee9bb;
-  font-size: 0.7rem;
-  font-weight: 760;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-}
-
-.private-chat-status > span {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #62dd9d;
-  box-shadow: 0 0 0 3px rgba(98, 221, 157, 0.1);
-}
-
-.private-chat-heading .lan-decline,
+.nearby-detail-actions .lan-decline,
 .private-chat-pending .lan-decline {
   min-height: 33px;
   padding: 0 10px;
@@ -3276,67 +3261,20 @@ a {
 
 .private-chat-messages {
   display: grid;
-  max-height: 230px;
-  gap: 7px;
+  max-height: 180px;
+  gap: 6px;
   overflow-y: auto;
-  padding: 10px;
+  padding: 8px;
   border: 1px solid rgba(112, 193, 245, 0.18);
   border-radius: 11px;
   background: linear-gradient(145deg, rgba(4, 18, 32, 0.68), rgba(7, 29, 49, 0.48));
 }
 
-.private-chat-messages.is-empty {
-  min-height: 54px;
-  place-items: center;
-  border-style: dashed;
-  background: rgba(4, 17, 31, 0.38);
-}
-
-.private-chat-empty,
 .private-chat-pending > p {
   margin: 0;
   color: #8ba6c4;
   font-size: 0.77rem;
   line-height: 1.45;
-}
-
-.private-chat-empty {
-  color: #9fc7e5;
-  font-weight: 700;
-}
-
-.private-chat-quick-replies {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-}
-
-.private-chat-quick-replies > span {
-  color: #84a4c1;
-  font-size: 0.67rem;
-  font-weight: 700;
-  margin-right: 2px;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-}
-
-.private-chat-quick-replies button {
-  background: rgba(29, 78, 117, 0.66);
-  border: 1px solid rgba(120, 201, 250, 0.23);
-  border-radius: 999px;
-  color: #cfeeff;
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.69rem;
-  font-weight: 700;
-  min-height: 28px;
-  padding: 0 10px;
-}
-
-.private-chat-quick-replies button:hover {
-  background: rgba(48, 132, 183, 0.65);
-  border-color: rgba(130, 222, 255, 0.58);
 }
 
 .chat-message {
@@ -3424,18 +3362,19 @@ a {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 7px;
-  padding: 8px;
+  gap: 6px;
+  padding: 6px 7px;
   border: 1px solid rgba(94, 205, 252, 0.25);
   border-radius: 10px;
   background: rgba(8, 37, 63, 0.56);
 }
 
 .chat-file-tray > div {
-  display: grid;
+  display: flex;
+  align-items: center;
   min-width: 0;
   flex: 1;
-  gap: 2px;
+  gap: 5px;
 }
 
 .chat-file-tray strong,
@@ -3446,19 +3385,22 @@ a {
 }
 
 .chat-file-tray strong {
+  flex: 0 0 auto;
   color: #dff5ff;
   font-size: 0.72rem;
 }
 
 .chat-file-tray small {
+  min-width: 0;
+  flex: 1;
   color: #8eafca;
   font-size: 0.65rem;
 }
 
 .chat-file-clear {
   display: grid;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   flex: 0 0 auto;
   place-items: center;
   padding: 0;
@@ -3478,7 +3420,7 @@ a {
 }
 
 .chat-file-send {
-  min-height: 30px;
+  min-height: 28px;
   flex: 0 0 auto;
   padding: 0 9px;
   border: 1px solid #36bdf0;
@@ -3793,11 +3735,6 @@ a {
   outline-offset: 3px;
 }
 
-.private-chat-quick-replies button:focus-visible {
-  outline: 2px solid #7ce2ff;
-  outline-offset: 3px;
-}
-
 @media (max-width: 680px) {
   .nearby-users-panel,
   .nearby-users-tab {
@@ -3840,6 +3777,10 @@ a {
     padding-left: 16px;
   }
 
+  .nearby-detail-body:has(.private-chat) {
+    padding: 12px 16px 14px;
+  }
+
   .nearby-compose-actions {
     flex-direction: column;
   }
@@ -3850,11 +3791,11 @@ a {
   }
 
   .private-chat-compose {
-    flex-direction: column;
+    flex-direction: row;
   }
 
   .private-chat-compose .nearby-send {
-    width: 100%;
+    width: auto;
   }
 
   .lan-notification-actions {
