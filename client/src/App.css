@@ -2230,7 +2230,7 @@ a {
 
 .home-glow {
   background:
-    radial-gradient(820px 510px at 50% 18%, rgba(27, 93, 178, 0.16), transparent 67%),
+    radial-gradient(820px 510px at 50% 18%, rgba(27, 93, 178, 0.1), transparent 67%),
     radial-gradient(640px 420px at 7% 75%, rgba(22, 167, 225, 0.08), transparent 68%),
     radial-gradient(540px 370px at 96% 34%, rgba(33, 115, 223, 0.09), transparent 70%),
     linear-gradient(180deg, #091224 0%, #060b16 58%, #050912 100%);
@@ -2326,12 +2326,12 @@ a {
 .home-main {
   width: min(1040px, calc(100% - 32px));
   margin: 0 auto;
-  padding: clamp(18px, 3vh, 36px) 0 40px;
+  padding: clamp(16px, 2.5vh, 30px) 0 40px;
   text-align: center;
 }
 
 .home-hero {
-  margin: 0 auto 20px;
+  margin: 0 auto 16px;
   animation: home-intro 520ms ease both;
 }
 
@@ -2347,7 +2347,7 @@ a {
 .home-hero h1 {
   margin: 0;
   color: #f8fbff;
-  font-size: clamp(3.4rem, 8vw, 5.45rem);
+  font-size: clamp(3.15rem, 7vw, 4.85rem);
   font-weight: 760;
   letter-spacing: -0.072em;
   line-height: 0.94;
@@ -2381,11 +2381,11 @@ a {
 
 .upload-share-card {
   display: flex;
-  width: min(530px, 100%);
+  width: min(510px, 100%);
   min-width: 0;
   flex-direction: column;
   margin: 0 auto;
-  padding: 22px;
+  padding: 20px;
 }
 
 .action-card-heading {
@@ -2393,7 +2393,7 @@ a {
   grid-template-columns: auto minmax(0, 1fr);
   gap: 11px;
   align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .action-card-icon {
@@ -2415,15 +2415,8 @@ a {
 .action-card-heading h2 {
   margin: 0;
   color: #f0f8ff;
-  font-size: 1rem;
+  font-size: 1.03rem;
   letter-spacing: -0.02em;
-}
-
-.action-card-heading p {
-  margin: 4px 0 0;
-  color: #91adca;
-  font-size: 0.77rem;
-  line-height: 1.4;
 }
 
 .home-main.has-upload-result {
@@ -2448,7 +2441,7 @@ a {
 }
 
 .upload-share-card .upload-dropzone {
-  min-height: 218px;
+  min-height: 210px;
   flex: 1;
   padding: 20px;
   border-radius: 15px;
@@ -4343,10 +4336,10 @@ a {
 
 .feature-indicators {
   display: grid;
-  width: min(840px, 100%);
+  width: min(660px, 100%);
   grid-template-columns: repeat(3, 1fr);
   gap: 0;
-  margin: 0 auto 22px;
+  margin: 0 auto 18px;
   border-top: 1px solid rgba(153, 190, 229, 0.12);
   border-bottom: 1px solid rgba(153, 190, 229, 0.12);
   animation: home-intro 650ms 140ms ease both;
@@ -4355,10 +4348,11 @@ a {
 .feature-indicators article {
   display: flex;
   min-width: 0;
-  gap: 11px;
-  align-items: flex-start;
-  padding: 21px 16px;
-  text-align: left;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  padding: 13px 10px;
+  text-align: center;
 }
 
 .feature-indicators article + article {
@@ -4367,15 +4361,15 @@ a {
 
 .indicator-icon {
   display: grid;
-  width: 28px;
-  height: 28px;
+  width: 18px;
+  height: 18px;
   flex: 0 0 auto;
   place-items: center;
 }
 
 .indicator-icon svg {
-  width: 23px;
-  height: 23px;
+  width: 18px;
+  height: 18px;
 }
 
 .indicator-icon.private { color: #75caf8; }
@@ -4383,17 +4377,15 @@ a {
 .indicator-icon.expiry { color: #d8b66c; }
 
 .feature-indicators h2 {
-  margin: 1px 0 5px;
+  margin: 0;
   color: #dce9f9;
-  font-size: 0.82rem;
-  font-weight: 680;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
 
 .feature-indicators p {
-  margin: 0;
-  color: #7890aa;
-  font-size: 0.74rem;
-  line-height: 1.45;
+  display: none;
 }
 
 .site-footer {
@@ -4436,11 +4428,11 @@ a {
   }
 
   .home-hero {
-    margin-bottom: 22px;
+    margin-bottom: 16px;
   }
 
   .home-hero h1 {
-    font-size: clamp(3.1rem, 16vw, 4.25rem);
+    font-size: clamp(2.9rem, 15vw, 3.9rem);
   }
 
   .upload-dropzone {
@@ -4455,7 +4447,7 @@ a {
   }
 
   .upload-share-card .upload-dropzone {
-    min-height: 230px;
+    min-height: 218px;
     padding: 18px;
   }
 
@@ -4485,17 +4477,23 @@ a {
   }
 
   .feature-indicators {
-    grid-template-columns: 1fr;
-    margin-bottom: 24px;
+    width: min(460px, 100%);
+    grid-template-columns: repeat(3, 1fr);
+    margin-bottom: 18px;
   }
 
   .feature-indicators article {
-    padding: 16px 5px;
+    gap: 6px;
+    padding: 12px 4px;
   }
 
   .feature-indicators article + article {
-    border-top: 1px solid rgba(153, 190, 229, 0.12);
-    border-left: 0;
+    border-top: 0;
+    border-left: 1px solid rgba(153, 190, 229, 0.12);
+  }
+
+  .feature-indicators h2 {
+    font-size: 0.65rem;
   }
 
   .site-footer {

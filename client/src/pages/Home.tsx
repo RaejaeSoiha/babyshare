@@ -509,17 +509,17 @@ export default function Home() {
         </section>
 
         {!hasUploadResult && <section className="feature-indicators" aria-label="BabyShare features">
-          <article>
+          <article title="Private sharing">
             <span className="indicator-icon private"><ShieldIcon /></span>
-            <div><h2>Private Sharing</h2><p>Your files stay on your network.</p></div>
+            <h2>Private sharing</h2>
           </article>
-          <article>
+          <article title="Nearby colleagues">
             <span className="indicator-icon fast"><UsersIcon /></span>
-            <div><h2>Nearby Colleagues</h2><p>See active people on your LAN.</p></div>
+            <h2>Nearby colleagues</h2>
           </article>
-          <article>
+          <article title="Ephemeral chat">
             <span className="indicator-icon expiry"><ChatIcon /></span>
-            <div><h2>Ephemeral Chat</h2><p>Conversations vanish when ended.</p></div>
+            <h2>Ephemeral chat</h2>
           </article>
         </section>}
 
@@ -531,8 +531,7 @@ export default function Home() {
                 <div className="action-card-heading">
                   <span className="action-card-icon"><UploadArrow /></span>
                   <div>
-                    <h2 id="upload-share-title">Upload &amp; Share Link</h2>
-                    <p>Create an encrypted link for your trusted team or network.</p>
+                    <h2 id="upload-share-title">Share a file</h2>
                   </div>
                 </div>
               <div
