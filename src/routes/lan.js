@@ -147,6 +147,45 @@ module.exports = function registerLanRoutes(app, deps) {
     return res.json({ transfer });
   });
 
+  app.post("/api/lan/transfers/:id/peer-start", (req, res) => {
+    const sender = requireDevice(req, res);
+    if (!sender) return;
+    const transfer = LAN_TRANSFERS.beginPeerTransfer(req.params.id, sender);
+    if (!transfer) return res.status(409).json({ error: "transfer_not_accepted" });
+    return res.json({ transfer });
+  });
+
+  app.post("/api/lan/transfers/:id/peer-progress", (req, res) => {
+    const sender = requireDevice(req, res);
+    if (!sender) return;
+    const transfer = LAN_TRANSFERS.updatePeerProgress(req.params.id, sender, req.body?.bytesTransferred);
+    if (!transfer) return res.status(409).json({ error: "transfer_unavailable" });
+    return res.json({ transfer });
+  });
+
+  app.post("/api/lan/transfers/:id/peer-complete", (req, res) => {
+    const recipient = requireDevice(req, res);
+    if (!recipient) return;
+    const transfer = LAN_TRANSFERS.completePeerTransfer(req.params.id, recipient);
+    if (!transfer) return res.status(409).json({ error: "transfer_incomplete" });
+    return res.json({ transfer });
+  });
+
+  app.post("/api/lan/transfers/:id/peer-consume", (req, res) => {
+    const recipient = requireDevice(req, res);
+    if (!recipient) return;
+    if (!LAN_TRANSFERS.consumePeerTransfer(req.params.id, recipient)) return res.status(404).json({ error: "transfer_unavailable" });
+    return res.status(204).end();
+  });
+
+  app.post("/api/lan/transfers/:id/fallback", (req, res) => {
+    const sender = requireDevice(req, res);
+    if (!sender) return;
+    const transfer = LAN_TRANSFERS.fallbackToRelay(req.params.id, sender);
+    if (!transfer) return res.status(409).json({ error: "transfer_unavailable" });
+    return res.json({ transfer });
+  });
+
   app.post("/api/lan/transfers/:id/decline", (req, res) => {
     const recipient = requireDevice(req, res);
     if (!recipient) return;

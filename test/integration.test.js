@@ -358,6 +358,60 @@ test("Nearby Users presents active signed-in users and guests without network ad
   assert.equal(Object.hasOwn(alice, "scope"), false);
 });
 
+test("recipient-approved peer transfers keep file bytes off the BabyShare server", async () => {
+  const sender = lanIdentity();
+  const recipient = lanIdentity();
+  await announceLanDevice(sender);
+  await announceLanDevice(recipient);
+
+  const requested = await fetchApp("/api/lan/transfers/request", {
+    body: JSON.stringify({ files: [{ name: "direct.txt", size: 17 }], recipientId: recipient.deviceId }),
+    headers: lanHeaders(sender),
+    method: "POST",
+  });
+  assert.equal(requested.status, 201);
+  const transfer = (await requested.json()).transfers[0];
+  assert.equal(transfer.transport, "peer");
+
+  const accepted = await fetchApp(`/api/lan/transfers/${transfer.id}/accept`, {
+    body: JSON.stringify({}),
+    headers: lanHeaders(recipient),
+    method: "POST",
+  });
+  assert.equal(accepted.status, 200);
+
+  const started = await fetchApp(`/api/lan/transfers/${transfer.id}/peer-start`, {
+    body: JSON.stringify({}),
+    headers: lanHeaders(sender),
+    method: "POST",
+  });
+  assert.equal(started.status, 200);
+  assert.equal((await started.json()).transfer.status, "receiving");
+
+  const progressed = await fetchApp(`/api/lan/transfers/${transfer.id}/peer-progress`, {
+    body: JSON.stringify({ bytesTransferred: 17 }),
+    headers: lanHeaders(sender),
+    method: "POST",
+  });
+  assert.equal(progressed.status, 200);
+
+  const completed = await fetchApp(`/api/lan/transfers/${transfer.id}/peer-complete`, {
+    body: JSON.stringify({}),
+    headers: lanHeaders(recipient),
+    method: "POST",
+  });
+  assert.equal(completed.status, 200);
+  assert.equal((await completed.json()).transfer.status, "ready");
+  assert.equal(fs.readdirSync(path.join(testDataDir, "uploads", "lan")).length, 0);
+
+  const consumed = await fetchApp(`/api/lan/transfers/${transfer.id}/peer-consume`, {
+    body: JSON.stringify({}),
+    headers: lanHeaders(recipient),
+    method: "POST",
+  });
+  assert.equal(consumed.status, 204);
+});
+
 test("LAN transfer requests are capped before a device can flood a recipient", async () => {
   const sender = lanIdentity();
   const recipient = lanIdentity();

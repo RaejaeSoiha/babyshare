@@ -505,7 +505,6 @@ export default function Home() {
 
       <main className={`home-main${hasUploadResult ? " has-upload-result" : ""}${isNearbyDetailOpen ? " has-nearby-detail" : ""}`}>
         <section className="home-hero" aria-labelledby="home-title">
-          <p className="hero-kicker">Private company collaboration</p>
           <h1 id="home-title">Baby<span>Share</span></h1>
         </section>
 
@@ -652,7 +651,7 @@ export default function Home() {
                             <div className="nearby-transfer" key={transfer.id}>
                               <div><strong>{transfer.name}</strong><span>To {transfer.peerName}</span></div>
                               <div className="nearby-transfer-status">
-                                <span>{transfer.status === "pending" ? "Awaiting acceptance" : transfer.status === "accepted" ? "Approved — sending…" : transfer.status === "receiving" ? `Sending ${transfer.progress}%` : "Ready to download once"}</span>
+                                <span>{transfer.status === "pending" ? "Awaiting acceptance" : transfer.status === "accepted" ? transfer.transport === "peer" ? "Approved — connecting directly…" : "Approved — sending…" : transfer.status === "receiving" ? `${transfer.transport === "peer" ? "Sending directly" : "Sending"} ${transfer.progress}%` : transfer.transport === "peer" ? "Delivered directly" : "Ready to download once"}</span>
                                 {(transfer.status === "receiving" || transfer.status === "ready") && <progress max="100" value={transfer.progress} />}
                               </div>
                             </div>

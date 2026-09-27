@@ -63,8 +63,9 @@ function validSignal(signal) {
 }
 
 class LanTransferService {
-  constructor({ uploadDirectory }) {
+  constructor({ uploadDirectory, defaultTransport = "relay" }) {
     this.uploadDirectory = uploadDirectory;
+    this.defaultTransport = defaultTransport === "peer" ? "peer" : "relay";
     this.devices = new Map();
     this.chats = new Map();
     this.transfers = new Map();
@@ -248,6 +249,7 @@ class LanTransferService {
         name: file.name,
         size: file.size,
         status: "pending",
+        transport: this.defaultTransport,
         createdAt: now,
         updatedAt: now,
         bytesTransferred: 0,
@@ -287,6 +289,9 @@ class LanTransferService {
   beginUpload(id, sender) {
     const transfer = this.getTransferForSender(id, sender);
     if (!transfer || transfer.status !== "accepted") return null;
+    // The encrypted relay remains available when a browser cannot establish a
+    // direct WebRTC path (for example, on isolated corporate Wi-Fi).
+    transfer.transport = "relay";
     transfer.status = "receiving";
     transfer.updatedAt = Date.now();
     transfer.bytesTransferred = 0;
@@ -297,6 +302,49 @@ class LanTransferService {
     if (!transfer || transfer.status !== "receiving") return;
     transfer.bytesTransferred = Math.min(transfer.size, Math.max(0, Math.floor(bytesTransferred)));
     transfer.updatedAt = Date.now();
+  }
+
+  beginPeerTransfer(id, sender) {
+    const transfer = this.getTransferForSender(id, sender);
+    if (!transfer || transfer.status !== "accepted") return null;
+    transfer.transport = "peer";
+    transfer.status = "receiving";
+    transfer.bytesTransferred = 0;
+    transfer.updatedAt = Date.now();
+    return this.toClientTransfer(transfer, sender);
+  }
+
+  updatePeerProgress(id, sender, bytesTransferred) {
+    const transfer = this.getTransferForSender(id, sender);
+    if (!transfer || transfer.transport !== "peer" || transfer.status !== "receiving" || !Number.isSafeInteger(bytesTransferred)) return null;
+    this.updateProgress(transfer, bytesTransferred);
+    return this.toClientTransfer(transfer, sender);
+  }
+
+  fallbackToRelay(id, sender) {
+    const transfer = this.getTransferForSender(id, sender);
+    if (!transfer || transfer.transport !== "peer" || !["accepted", "receiving"].includes(transfer.status)) return null;
+    transfer.transport = "relay";
+    transfer.status = "accepted";
+    transfer.bytesTransferred = 0;
+    transfer.updatedAt = Date.now();
+    return this.toClientTransfer(transfer, sender);
+  }
+
+  completePeerTransfer(id, recipient) {
+    const transfer = this.getTransferForRecipient(id, recipient);
+    if (!transfer || transfer.transport !== "peer" || transfer.status !== "receiving" || transfer.bytesTransferred < transfer.size) return null;
+    transfer.bytesTransferred = transfer.size;
+    transfer.status = "ready";
+    transfer.updatedAt = Date.now();
+    return this.toClientTransfer(transfer, recipient);
+  }
+
+  consumePeerTransfer(id, recipient) {
+    const transfer = this.getTransferForRecipient(id, recipient);
+    if (!transfer || transfer.transport !== "peer" || transfer.status !== "ready") return false;
+    this.transfers.delete(id);
+    return true;
   }
 
   completeUpload(transfer, storedFile) {
@@ -370,6 +418,7 @@ class LanTransferService {
 
   toClientTransfer(transfer, device) {
     const outgoing = transfer.senderId === device.id;
+    const peerId = outgoing ? transfer.recipientId : transfer.senderId;
     const peerName = outgoing ? transfer.recipientName : transfer.senderName;
     const progress = transfer.status === "ready"
       ? 100
@@ -381,10 +430,12 @@ class LanTransferService {
       direction: outgoing ? "outgoing" : "incoming",
       id: transfer.id,
       name: transfer.name,
+      peerId,
       peerName: peerName || "Nearby device",
       progress,
       size: transfer.size,
       status: transfer.status,
+      transport: transfer.transport || "relay",
       updatedAt: transfer.updatedAt,
     };
   }

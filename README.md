@@ -111,12 +111,13 @@ to 20 files and send a direct transfer request immediately; the recipient must
 explicitly accept or decline every transfer. This keeps the flow simple without
 creating a contact list or durable history.
 
-The sender's browser retains the selected files until they are accepted, then
-uploads them to the hub with live progress visible to both browsers. Keep the
-sender page open until the transfer reaches **Ready to download**. Received files are
-available only from the in-app notification, are not given public links, and are
-deleted from BabyShare's encrypted transfer storage immediately after a successful
-download. A received transfer can be downloaded once.
+The sender's browser retains selected files until they are accepted, then sends
+them directly to the recipient when a peer connection is available, with live
+progress visible to both browsers. Keep both pages open until the recipient
+saves the completed file. If the direct connection is unavailable, the sender
+uploads through the encrypted one-time relay instead. Received files are never
+given public links; relay files are deleted immediately after a successful
+download, and direct files are cleared from the receiving browser after saving.
 
 Either nearby device can request a private chat; the other person must accept it.
 Chat messages exist only while that chat is active and only in server memory.
@@ -140,9 +141,13 @@ BabyShare now exposes an opt-out, same-LAN signaling relay at
 messages. It accepts only active device credentials scoped to the same subnet,
 queues at most 24 messages for no longer than 60 seconds, and deletes each
 message when the recipient reads it. Set `WEBRTC_SIGNALING_ENABLED=false` to
-disable these endpoints. Signaling carries no file bytes and does not change the
-current direct-transfer flow: files remain encrypted, recipient-approved, and
-one-time downloadable through BabyShare's server.
+disable these endpoints. When signaling is enabled, an accepted nearby transfer
+uses an encrypted WebRTC data channel between the two browsers by default;
+BabyShare stores only short-lived transfer metadata and no file bytes. The
+receiving browser holds the completed file only until the recipient saves it,
+so both people should keep BabyShare open until that step completes. If a direct
+channel cannot connect, BabyShare falls back to its existing recipient-approved,
+encrypted one-time relay.
 
 For future peer-to-peer WebRTC media or data channels across different networks,
 configure a separate TURN service and its credentials in the browser client. A

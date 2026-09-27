@@ -210,7 +210,10 @@ function createApp() {
   ensureDir(LAN_TRANSFER_TMP);
   clearInterruptedTemporaryUploads(UPLOADS_TMP);
   clearInterruptedTemporaryUploads(LAN_TRANSFER_TMP);
-  const LAN_TRANSFERS = new LanTransferService({ uploadDirectory: UPLOADS_LAN });
+  const LAN_TRANSFERS = new LanTransferService({
+    defaultTransport: WEBRTC_SIGNALING_ENABLED ? "peer" : "relay",
+    uploadDirectory: UPLOADS_LAN,
+  });
 
   function appRedirect(res, redirectPath) {
     const base = FRONTEND_BASE_URL.replace(/\/+$/, "");
