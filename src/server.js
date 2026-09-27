@@ -117,6 +117,15 @@ function createSameOriginGuard(allowedOrigins) {
   };
 }
 
+function clearInterruptedTemporaryUploads(directory) {
+  // Multer writes an incoming file before it can be encrypted. An interrupted
+  // process must not leave those plaintext fragments on disk after restart.
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    if (!entry.isFile() && !entry.isSymbolicLink()) continue;
+    fs.unlinkSync(path.join(directory, entry.name));
+  }
+}
+
 function createApp() {
   validateRuntimeConfig();
   const app = express();
@@ -199,6 +208,8 @@ function createApp() {
   ensureDir(UPLOADS_TMP);
   ensureDir(UPLOADS_LAN);
   ensureDir(LAN_TRANSFER_TMP);
+  clearInterruptedTemporaryUploads(UPLOADS_TMP);
+  clearInterruptedTemporaryUploads(LAN_TRANSFER_TMP);
   const LAN_TRANSFERS = new LanTransferService({ uploadDirectory: UPLOADS_LAN });
 
   function appRedirect(res, redirectPath) {
@@ -304,6 +315,7 @@ function createApp() {
   cleanupTimer.unref();
 
   const loginLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 10 });
+  const lanLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 180 });
   const uploadLimiter = createRateLimiter({ windowMs: 60 * 60 * 1000, max: 30 });
   const passwordLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 10 });
 
@@ -336,6 +348,7 @@ function createApp() {
     getUserFileMeta,
     getUserFilePath,
     isExpired,
+    lanLimiter,
     loginLimiter,
     mapUserFiles,
     passwordLimiter,

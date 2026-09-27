@@ -31,7 +31,9 @@ function writeJson(file, value) {
 }
 
 function loadUsers() {
-  return readJson(USERS_FILE, { admin: "admin123" }, "user store");
+  // Never create a predictable administrator account. Existing installations
+  // retain their users.json; a new production installation must bootstrap one.
+  return readJson(USERS_FILE, {}, "user store");
 }
 
 function loadShares() {

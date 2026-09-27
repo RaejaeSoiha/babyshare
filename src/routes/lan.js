@@ -20,7 +20,10 @@ module.exports = function registerLanRoutes(app, deps) {
     WEBRTC_SIGNALING_ENABLED,
     decryptFile,
     encryptFile,
+    lanLimiter,
   } = deps;
+
+  app.use("/api/lan", lanLimiter);
 
   const uploadTransfer = multer({
     dest: LAN_TRANSFER_TMP,

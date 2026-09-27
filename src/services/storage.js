@@ -35,7 +35,14 @@ function canPreview(filename) {
 }
 
 function ensureDir(dir) {
-  fs.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  // mkdir honours the process umask and does not tighten an existing folder.
+  // Keep runtime data accessible only to the account running BabyShare.
+  try {
+    fs.chmodSync(dir, 0o700);
+  } catch {
+    // Windows may not support POSIX permission changes; its ACLs remain in use.
+  }
 }
 
 async function encryptFile(inputPath, outputPath, secretKey) {
@@ -119,6 +126,8 @@ async function decryptFile(inputPath, res, filename, secretKey, options = {}) {
     const preview = options.disposition === "inline" && canPreview(filename);
     res.setHeader("Content-Type", getContentType(filename));
     res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Cache-Control", "private, no-store, max-age=0");
+    res.setHeader("Pragma", "no-cache");
     if (preview) {
       res.setHeader("Content-Disposition", "inline");
     } else {

@@ -343,7 +343,9 @@ export default function Home() {
       const code = transferError instanceof Error ? transferError.message : "";
       setNearbyError(code === "device_unavailable"
         ? "That device is no longer available. Choose another device."
-        : "Could not create the transfer request. Please try again.");
+        : code === "transfer_limit_reached"
+          ? "Finish or decline existing file requests before sending more."
+          : "Could not create the transfer request. Please try again.");
     } finally {
       setNearbySending(false);
     }

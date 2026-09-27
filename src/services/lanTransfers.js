@@ -10,6 +10,7 @@ const PENDING_TTL_MS = 10 * 60 * 1000;
 const ACCEPTED_TTL_MS = 20 * 60 * 1000;
 const READY_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_FILE_SIZE = 1024 * 1024 * 1024;
+const MAX_ACTIVE_TRANSFERS_PER_DEVICE = 20;
 const MAX_CHAT_MESSAGE_LENGTH = 1_000;
 const MAX_CHAT_MESSAGES = 200;
 const SIGNAL_TTL_MS = 60 * 1000;
@@ -224,9 +225,16 @@ class LanTransferService {
     if (!isDeviceId(recipientId) || !Array.isArray(files) || files.length === 0 || files.length > 20 || files.some((file) => !validFileMeta(file))) {
       return { error: "invalid_transfer" };
     }
+    this.cleanup();
     const recipient = this.devices.get(recipientId);
     if (!recipient || recipient.scope !== sender.scope || recipient.updatedAt + DEVICE_TTL_MS < Date.now()) {
       return { error: "device_unavailable" };
+    }
+
+    const activeForSender = [...this.transfers.values()].filter((transfer) => transfer.senderId === sender.id).length;
+    const activeForRecipient = [...this.transfers.values()].filter((transfer) => transfer.recipientId === recipient.id).length;
+    if (activeForSender + files.length > MAX_ACTIVE_TRANSFERS_PER_DEVICE || activeForRecipient + files.length > MAX_ACTIVE_TRANSFERS_PER_DEVICE) {
+      return { error: "transfer_limit_reached" };
     }
 
     const now = Date.now();

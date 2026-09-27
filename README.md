@@ -15,8 +15,11 @@ npm start
 For a separate Vite development server, run `npm run client:dev` and configure
 the backend port in `client/vite.config.ts`.
 
-Development can use its local fallback keys for compatibility with an existing
-local data store. They are intentionally rejected when `NODE_ENV=production`.
+Development can use local fallback encryption keys for compatibility with an
+existing local data store. It never creates a default administrator account;
+register a local account for normal use, or provide a `users.json` when
+administrator access is needed. Fallback keys are intentionally rejected when
+`NODE_ENV=production`.
 
 ## Production configuration
 

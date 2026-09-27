@@ -129,7 +129,15 @@ test.before(async () => {
     makeEncryptedFile("alice", "protected.enc", "protected-content"),
     makeEncryptedFile("bob", "bob-secret.enc", "bob-only"),
   ]);
+  const interruptedUpload = path.join(testDataDir, "uploads", "tmp", "interrupted-upload");
+  const interruptedLanUpload = path.join(testDataDir, "uploads", "lan-tmp", "interrupted-lan-upload");
+  fs.mkdirSync(path.dirname(interruptedUpload), { recursive: true });
+  fs.mkdirSync(path.dirname(interruptedLanUpload), { recursive: true });
+  fs.writeFileSync(interruptedUpload, "plaintext fragment");
+  fs.writeFileSync(interruptedLanUpload, "plaintext fragment");
   server = http.createServer(createApp());
+  assert.equal(fs.existsSync(interruptedUpload), false);
+  assert.equal(fs.existsSync(interruptedLanUpload), false);
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   baseUrl = `http://127.0.0.1:${address.port}`;
@@ -175,6 +183,7 @@ test("password-protected shares display a prompt and serve only after validation
     method: "POST",
   });
   assert.equal(accepted.status, 200);
+  assert.equal(accepted.headers.get("cache-control"), "private, no-store, max-age=0");
   assert.equal(await accepted.text(), "protected-content");
 });
 
@@ -347,4 +356,29 @@ test("Nearby Users presents active signed-in users and guests without network ad
   });
   assert.equal(Object.hasOwn(alice, "ip"), false);
   assert.equal(Object.hasOwn(alice, "scope"), false);
+});
+
+test("LAN transfer requests are capped before a device can flood a recipient", async () => {
+  const sender = lanIdentity();
+  const recipient = lanIdentity();
+  await announceLanDevice(sender);
+  await announceLanDevice(recipient);
+
+  const firstBatch = await fetchApp("/api/lan/transfers/request", {
+    body: JSON.stringify({
+      files: Array.from({ length: 20 }, (_, index) => ({ name: `file-${index}.txt`, size: 1 })),
+      recipientId: recipient.deviceId,
+    }),
+    headers: lanHeaders(sender),
+    method: "POST",
+  });
+  assert.equal(firstBatch.status, 201);
+
+  const overflow = await fetchApp("/api/lan/transfers/request", {
+    body: JSON.stringify({ files: [{ name: "one-too-many.txt", size: 1 }], recipientId: recipient.deviceId }),
+    headers: lanHeaders(sender),
+    method: "POST",
+  });
+  assert.equal(overflow.status, 400);
+  assert.equal((await overflow.json()).error, "transfer_limit_reached");
 });

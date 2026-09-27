@@ -193,8 +193,10 @@ export default function WorkspaceChatDock() {
     try {
       await requestTransfers(selectedPeerId, attachments);
       clearAttachments();
-    } catch {
-      setError("Could not send the file request. Please try again.");
+    } catch (transferError) {
+      setError(transferError instanceof Error && transferError.message === "transfer_limit_reached"
+        ? "Finish or decline existing file requests before sending more."
+        : "Could not send the file request. Please try again.");
     } finally {
       setSendingAttachments(false);
     }
