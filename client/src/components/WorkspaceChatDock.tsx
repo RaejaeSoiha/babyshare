@@ -4,8 +4,18 @@ import { Link, useLocation } from "react-router-dom";
 import { useLanTransfers } from "./LanTransfers";
 import { apiFetch } from "../lib/api";
 
+const MAX_FILE_SIZE = 1024 * 1024 * 1024;
+
 function avatarInitial(name: string) {
   return name.trim().charAt(0).toUpperCase() || "G";
+}
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB"];
+  const unitIndex = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)) - 1, units.length - 1);
+  const value = bytes / (1024 ** (unitIndex + 1));
+  return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} ${units[unitIndex]}`;
 }
 
 function UsersIcon() {
@@ -23,10 +33,13 @@ function BackIcon() {
 export default function WorkspaceChatDock() {
   const { pathname } = useLocation();
   const messagesRef = useRef<HTMLDivElement>(null);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
   const [isSignedIn, setIsSignedIn] = useState<boolean | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [selectedPeerId, setSelectedPeerId] = useState("");
   const [draft, setDraft] = useState("");
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const [sendingAttachments, setSendingAttachments] = useState(false);
   const [error, setError] = useState("");
   const [dockPosition, setDockPosition] = useState<{ left: number; top: number } | null>(null);
   const [isCompactViewport, setIsCompactViewport] = useState(() => typeof window !== "undefined" && window.innerWidth <= 680);
@@ -38,6 +51,7 @@ export default function WorkspaceChatDock() {
     endChat,
     markChatRead,
     requestChat,
+    requestTransfers,
     sendChatMessage,
     unreadChatIds,
   } = useLanTransfers();
@@ -64,6 +78,8 @@ export default function WorkspaceChatDock() {
     const openRequestedChat = (event: Event) => {
       const peerId = (event as CustomEvent<{ peerId?: string }>).detail?.peerId;
       if (!peerId) return;
+      setAttachments([]);
+      if (attachmentInputRef.current) attachmentInputRef.current.value = "";
       setSelectedPeerId(peerId);
       setIsOpen(true);
       setError("");
@@ -101,6 +117,8 @@ export default function WorkspaceChatDock() {
     setSelectedPeerId(peerId);
     setIsOpen(true);
     setError("");
+    setAttachments([]);
+    if (attachmentInputRef.current) attachmentInputRef.current.value = "";
     const existing = chats.find((chat) => chat.peerId === peerId);
     if (existing) return;
     try {
@@ -127,6 +145,8 @@ export default function WorkspaceChatDock() {
       await endChat(selectedChat.id);
       setSelectedPeerId("");
       setDraft("");
+      setAttachments([]);
+      if (attachmentInputRef.current) attachmentInputRef.current.value = "";
     } catch {
       setError("Could not end the chat. Please try again.");
     }
@@ -141,6 +161,42 @@ export default function WorkspaceChatDock() {
       setDraft("");
     } catch {
       setError("Could not send the message. Please try again.");
+    }
+  };
+
+  const chooseAttachments = (nextFiles: FileList | File[]) => {
+    const selected = Array.from(nextFiles);
+    if (selected.length === 0) return;
+    if (selected.length > 20) {
+      setAttachments([]);
+      setError("Choose up to 20 files at a time.");
+      return;
+    }
+    if (selected.some((file) => file.size > MAX_FILE_SIZE)) {
+      setAttachments([]);
+      setError("Each file must be 1 GB or smaller.");
+      return;
+    }
+    setAttachments(selected);
+    setError("");
+  };
+
+  const clearAttachments = () => {
+    setAttachments([]);
+    if (attachmentInputRef.current) attachmentInputRef.current.value = "";
+  };
+
+  const sendAttachments = async () => {
+    if (!selectedPeerId || attachments.length === 0 || sendingAttachments) return;
+    setSendingAttachments(true);
+    setError("");
+    try {
+      await requestTransfers(selectedPeerId, attachments);
+      clearAttachments();
+    } catch {
+      setError("Could not send the file request. Please try again.");
+    } finally {
+      setSendingAttachments(false);
     }
   };
 
@@ -192,15 +248,22 @@ export default function WorkspaceChatDock() {
           <div className="workspace-chat-thread">
             {selectedChat?.status === "active" ? (
               <>
+                <input ref={attachmentInputRef} className="visually-hidden" type="file" multiple onChange={(event) => event.target.files && chooseAttachments(event.target.files)} aria-label="Add files to transfer" />
                 <div className="workspace-chat-messages" ref={messagesRef} aria-live="polite">
                   {selectedChat.messages.length === 0 ? <p>Send the first message. Ending this chat deletes it for both people.</p> : selectedChat.messages.map((message) => (
                     <div className={`workspace-chat-message${message.mine ? " is-mine" : ""}`} key={message.id}>{message.text}</div>
                   ))}
                 </div>
                 <form className="workspace-chat-compose" onSubmit={sendMessage}>
+                  <button type="button" className="chat-attachment-button" onClick={() => attachmentInputRef.current?.click()} aria-label="Add files to transfer" title="Add files">+</button>
                   <input value={draft} maxLength={1000} onChange={(event) => setDraft(event.target.value)} placeholder="Write a message" aria-label="Write a message" autoComplete="off" />
                   <button type="submit" disabled={!draft.trim()}>Send</button>
                 </form>
+                {attachments.length > 0 && <div className="chat-file-tray" aria-live="polite">
+                  <div><strong>{attachments.length} {attachments.length === 1 ? "file" : "files"} ready</strong><small>{attachments.map((file) => `${file.name} (${formatFileSize(file.size)})`).join(" · ")}</small></div>
+                  <button type="button" className="chat-file-clear" onClick={clearAttachments} aria-label="Remove selected files">×</button>
+                  <button type="button" className="chat-file-send" disabled={sendingAttachments} onClick={() => void sendAttachments()}>{sendingAttachments ? "Sending…" : "Send files"}</button>
+                </div>}
                 <button type="button" className="workspace-chat-end" onClick={() => void endSelectedChat()}>End chat · delete messages</button>
               </>
             ) : selectedChat?.direction === "incoming" ? (

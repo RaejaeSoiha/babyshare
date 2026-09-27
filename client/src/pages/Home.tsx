@@ -326,6 +326,11 @@ export default function Home() {
     setNearbyError("");
   };
 
+  const clearNearbyFiles = () => {
+    setNearbyFiles([]);
+    if (nearbyInputRef.current) nearbyInputRef.current.value = "";
+  };
+
   const sendToNearbyDevice = async () => {
     if (!selectedDevice || nearbyFiles.length === 0 || nearbySending) return;
     setNearbySending(true);
@@ -597,14 +602,22 @@ export default function Home() {
                     </header>
 
                     <div className="nearby-detail-body">
+                      <input
+                        ref={nearbyInputRef}
+                        className="visually-hidden"
+                        type="file"
+                        multiple
+                        onChange={(event) => event.target.files && chooseNearbyFiles(event.target.files)}
+                        aria-label="Choose files for nearby user"
+                      />
                       {selectedChat?.status === "active" ? (
                         <section className="private-chat" aria-label={`Private chat with ${selectedDevice.displayName}`}>
                           <div className="private-chat-heading">
-                            <div><p className="nearby-kicker">Quick chat · ephemeral</p><strong>{selectedDevice.displayName}</strong></div>
-                            <button type="button" className="lan-decline" onClick={() => void endSelectedChat()}>End chat</button>
+                            <p className="private-chat-status"><span aria-hidden="true" />Active now</p>
+                            <button type="button" className="lan-decline private-chat-end" onClick={() => void endSelectedChat()}>End chat</button>
                           </div>
-                          <div className="private-chat-messages" ref={chatMessagesRef} aria-live="polite">
-                            {selectedChat.messages.length === 0 ? <p>No messages yet.</p> : selectedChat.messages.map((message) => (
+                          <div className={`private-chat-messages${selectedChat.messages.length === 0 ? " is-empty" : ""}`} ref={chatMessagesRef} aria-live="polite">
+                            {selectedChat.messages.length === 0 ? <p className="private-chat-empty">Say hello</p> : selectedChat.messages.map((message) => (
                               <div className={`chat-message${message.mine ? " is-mine" : ""}`} key={message.id}>
                                 <span>{message.text}</span>
                                 <time dateTime={new Date(message.sentAt).toISOString()}>{new Date(message.sentAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time>
@@ -617,21 +630,19 @@ export default function Home() {
                           </div>
                           <form className="private-chat-compose" onSubmit={submitChatMessage}>
                             <label className="visually-hidden" htmlFor="private-chat-message">Message</label>
+                            <button type="button" className="chat-attachment-button" onClick={() => nearbyInputRef.current?.click()} aria-label="Add files to transfer" title="Add files">+</button>
                             <input id="private-chat-message" value={chatDraft} maxLength={1000} onChange={(event) => setChatDraft(event.target.value)} placeholder="Write a message" autoComplete="off" />
                             <button type="submit" className="nearby-send" disabled={!chatDraft.trim()}>Send</button>
                           </form>
-                          <p className="nearby-privacy-note">Ephemeral · cleared when chat ends</p>
+                          {nearbyFiles.length > 0 && <div className="chat-file-tray" aria-live="polite">
+                            <div><strong>{nearbyFiles.length} {nearbyFiles.length === 1 ? "file" : "files"} ready</strong><small>{nearbyFiles.map((file) => `${file.name} (${formatFileSize(file.size)})`).join(" · ")}</small></div>
+                            <button type="button" className="chat-file-clear" onClick={clearNearbyFiles} aria-label="Remove selected files">×</button>
+                            <button type="button" className="chat-file-send" disabled={nearbySending} onClick={() => void sendToNearbyDevice()}>{nearbySending ? "Sending…" : "Send files"}</button>
+                          </div>}
+                          <p className="nearby-privacy-note">Ephemeral · cleared on end</p>
                         </section>
                       ) : (
                         <div className="nearby-compose">
-                          <input
-                            ref={nearbyInputRef}
-                            className="visually-hidden"
-                            type="file"
-                            multiple
-                            onChange={(event) => event.target.files && chooseNearbyFiles(event.target.files)}
-                            aria-label="Choose files for nearby user"
-                          />
                           <div className="nearby-compose-actions">
                             {!selectedChat && <button type="button" className="nearby-send" onClick={() => void startPrivateChat()}>Start chat</button>}
                             <button type="button" className="nearby-choose" onClick={() => nearbyInputRef.current?.click()}>Choose files</button>
