@@ -3484,6 +3484,72 @@ a {
   box-shadow: 0 18px 40px rgba(0, 7, 19, 0.45);
 }
 
+.lan-chat-request {
+  gap: 10px;
+  padding: 13px;
+  border-color: rgba(105, 209, 255, 0.48);
+  background:
+    radial-gradient(115% 135% at 0% 0%, rgba(45, 158, 231, 0.22), transparent 62%),
+    linear-gradient(145deg, rgba(9, 31, 55, 0.98), rgba(6, 21, 39, 0.98));
+}
+
+.lan-request-heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+}
+
+.lan-request-heading > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.lan-request-heading .lan-notification-kicker {
+  margin-bottom: 2px;
+}
+
+.lan-request-avatar {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(105, 214, 255, 0.42);
+  border-radius: 50%;
+  background: linear-gradient(145deg, rgba(41, 146, 226, 0.8), rgba(31, 196, 220, 0.56));
+  color: #f2fbff;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.lan-request-new {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #8fe2b0;
+  font-size: 0.63rem;
+  font-weight: 760;
+}
+
+.lan-request-new > i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #62dd9d;
+  box-shadow: 0 0 0 3px rgba(98, 221, 157, 0.1);
+}
+
+.lan-request-copy {
+  margin: -2px 0 0 43px !important;
+  color: #a7c2da !important;
+  font-size: 0.77rem !important;
+}
+
+.lan-chat-request .lan-notification-actions button {
+  min-height: 37px;
+}
+
 .lan-message-notification {
   gap: 9px;
   padding: 12px;

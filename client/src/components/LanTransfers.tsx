@@ -444,12 +444,15 @@ export function LanTransferNotifications() {
         );
       })}
       {incomingChats.map((chat) => (
-        <section className="lan-notification" key={chat.id}>
-          <p className="lan-notification-kicker">Private chat request</p>
-          <strong>{chat.peerName} wants to start a private chat</strong>
-          <p>Messages are available only during this chat and are deleted for both people when either person ends it.</p>
+        <section className="lan-notification lan-chat-request" key={chat.id}>
+          <div className="lan-request-heading">
+            <span className="lan-request-avatar" aria-hidden="true">{chat.peerName.trim().charAt(0).toUpperCase() || "G"}</span>
+            <div><p className="lan-notification-kicker">Private chat request</p><strong>{chat.peerName}</strong></div>
+            <span className="lan-request-new"><i aria-hidden="true" />New</span>
+          </div>
+          <p className="lan-request-copy">Wants to start a private chat</p>
           <div className="lan-notification-actions">
-            <button type="button" className="lan-accept" onClick={() => void acceptChat(chat.id)}>Accept chat</button>
+            <button type="button" className="lan-accept" onClick={() => void acceptChat(chat.id)}>Accept</button>
             <button type="button" className="lan-decline" onClick={() => void endChat(chat.id).catch(() => {})}>Decline</button>
           </div>
         </section>
