@@ -588,7 +588,7 @@ export default function Home() {
                       <div className="nearby-detail-user">
                         <span className="nearby-user-avatar is-large" aria-hidden="true">{avatarInitial(selectedDevice.displayName)}</span>
                         <div>
-                          <p className="nearby-kicker">Company LAN colleague</p>
+                          <p className="nearby-kicker">Nearby colleague</p>
                           <h2 id="nearby-detail-title">{selectedDevice.displayName}</h2>
                           <p>{selectedDevice.displayName === "Guest" ? `Guest • ${selectedDevice.deviceName}` : selectedDevice.deviceName} <span className="nearby-detail-online"><span aria-hidden="true" />Online</span></p>
                         </div>
@@ -604,7 +604,7 @@ export default function Home() {
                             <button type="button" className="lan-decline" onClick={() => void endSelectedChat()}>End chat</button>
                           </div>
                           <div className="private-chat-messages" ref={chatMessagesRef} aria-live="polite">
-                            {selectedChat.messages.length === 0 ? <p>No messages yet. Ending this chat deletes everything.</p> : selectedChat.messages.map((message) => (
+                            {selectedChat.messages.length === 0 ? <p>No messages yet.</p> : selectedChat.messages.map((message) => (
                               <div className={`chat-message${message.mine ? " is-mine" : ""}`} key={message.id}>
                                 <span>{message.text}</span>
                                 <time dateTime={new Date(message.sentAt).toISOString()}>{new Date(message.sentAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time>
@@ -620,11 +620,10 @@ export default function Home() {
                             <input id="private-chat-message" value={chatDraft} maxLength={1000} onChange={(event) => setChatDraft(event.target.value)} placeholder="Write a message" autoComplete="off" />
                             <button type="submit" className="nearby-send" disabled={!chatDraft.trim()}>Send</button>
                           </form>
-                          <p className="nearby-privacy-note">End chat to delete this conversation for both devices. Nothing is saved as history.</p>
+                          <p className="nearby-privacy-note">Ephemeral · cleared when chat ends</p>
                         </section>
                       ) : (
                         <div className="nearby-compose">
-                          <p>Start a chat or send a file request to <strong>{selectedDevice.displayName}</strong>. They choose whether to accept.</p>
                           <input
                             ref={nearbyInputRef}
                             className="visually-hidden"
@@ -637,17 +636,17 @@ export default function Home() {
                             {!selectedChat && <button type="button" className="nearby-send" onClick={() => void startPrivateChat()}>Start chat</button>}
                             <button type="button" className="nearby-choose" onClick={() => nearbyInputRef.current?.click()}>Choose files</button>
                             <button type="button" className="nearby-send" disabled={nearbyFiles.length === 0 || nearbySending} onClick={() => void sendToNearbyDevice()}>
-                              {nearbySending ? "Requesting…" : nearbyFiles.length ? `Send to ${selectedDevice.displayName}` : "Send files"}
+                              {nearbySending ? "Sending…" : nearbyFiles.length ? `Send ${nearbyFiles.length} ${nearbyFiles.length === 1 ? "file" : "files"}` : "Send files"}
                             </button>
                           </div>
                           {nearbyFiles.length > 0 && <p className="nearby-files" aria-live="polite">{nearbyFiles.map((file) => `${file.name} (${formatFileSize(file.size)})`).join(" · ")}</p>}
                           {selectedChat?.status === "pending" && (
                             <div className="private-chat-pending">
-                              <p>Private chat request sent. Waiting for {selectedDevice.displayName} to accept.</p>
-                              <button type="button" className="lan-decline" onClick={() => void endSelectedChat()}>Cancel chat request</button>
+                              <p>Chat request sent.</p>
+                              <button type="button" className="lan-decline" onClick={() => void endSelectedChat()}>Cancel</button>
                             </div>
                           )}
-                          <p className="nearby-privacy-note">No chat or transfer history is saved. End a chat to erase its messages for both people.</p>
+                          <p className="nearby-privacy-note">Ephemeral · recipient approves files</p>
                         </div>
                       )}
                       {activeOutgoingTransfers.length > 0 && (
@@ -707,7 +706,10 @@ export default function Home() {
               title="Drag to move Nearby Users"
             >
               <span className="nearby-users-panel-icon"><UsersIcon /></span>
-              <div><p className="nearby-kicker">Company LAN · private</p><h2>Nearby Users <span>{devices.length} online</span></h2></div>
+              <div>
+                <p className="nearby-kicker">Company LAN · private</p>
+                <div className="nearby-users-panel-heading-row"><h2>Nearby Users</h2><span className="nearby-online-count"><i aria-hidden="true" />{devices.length} online</span></div>
+              </div>
             </div>
             <button type="button" className="nearby-users-panel-toggle" onClick={minimizeNearbyPanel} aria-label="Minimize Nearby Users">−</button>
           </header>
@@ -735,12 +737,13 @@ export default function Home() {
                   onClick={() => openNearbyDetail(device.id)}
                   aria-label={`Open chat and sharing with ${device.displayName} on ${device.deviceName}`}
                 >
-                  <span className="nearby-user-avatar" aria-hidden="true">{avatarInitial(device.displayName)}</span>
+                  <span className="nearby-user-avatar" aria-hidden="true"><i />{avatarInitial(device.displayName)}</span>
                   <span className="nearby-device-details">
                     <strong>{device.displayName}</strong>
                     <small className={hasUnreadMessage ? "nearby-chat-preview is-unread" : "nearby-chat-preview"}>{lastMessage?.text || (device.displayName === "Guest" ? `Guest • ${device.deviceName}` : device.deviceName)}</small>
                   </span>
                   <span className="nearby-device-online"><span aria-hidden="true" />Online</span>
+                  <span className="nearby-panel-user-arrow" aria-hidden="true">›</span>
                   {hasUnreadMessage && <span className="nearby-chat-unread" aria-label="New message" />}
                 </button>
               </article>
