@@ -2246,6 +2246,16 @@ a {
   flex-direction: column;
   color: #f7faff;
   overflow-x: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Keep interface labels from being selected while preserving normal text entry. */
+.home-page input,
+.home-page textarea,
+.home-page [contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .site-header {
