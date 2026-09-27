@@ -34,8 +34,8 @@ export default function Login() {
       <main className="login-shell">
         <section className="login-intro" aria-labelledby="login-page-title">
           <p className="login-eyebrow">PRIVATE WORKSPACE</p>
-          <h1 id="login-page-title">Everything you share, in reach.</h1>
-          <p>Sign in to manage your files, trusted links, and private collaboration.</p>
+          <h1 id="login-page-title">Your workspace.<br />Ready when you are.</h1>
+          <p>Manage files, share links, and connect with nearby colleagues.</p>
           <div className="login-trust" aria-label="BabyShare benefits">
             <span><ShieldIcon />Private by design</span>
             <span><i aria-hidden="true" />Secure sharing</span>

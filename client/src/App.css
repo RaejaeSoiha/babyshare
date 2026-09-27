@@ -496,6 +496,10 @@ a {
 
 .login-intro {
   max-width: 410px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
   animation: home-intro 520ms ease both;
 }
 
@@ -509,18 +513,19 @@ a {
 }
 
 .login-intro h1 {
-  max-width: 360px;
-  margin: 15px 0;
+  max-width: 400px;
+  margin: 15px auto;
   color: #f5f9ff;
-  font-size: clamp(2.45rem, 4.4vw, 3.7rem);
-  font-weight: 740;
-  letter-spacing: -0.06em;
-  line-height: 0.99;
+  font-size: clamp(2.05rem, 3.3vw, 2.7rem);
+  font-weight: 700;
+  letter-spacing: -0.055em;
+  line-height: 1.04;
+  text-align: center;
 }
 
 .login-intro > p:not(.login-eyebrow) {
   max-width: 360px;
-  margin: 0;
+  margin: 0 auto;
   color: #91abc6;
   font-size: 0.96rem;
   line-height: 1.6;
@@ -529,6 +534,7 @@ a {
 .login-trust {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 9px;
   margin-top: 25px;
 }
