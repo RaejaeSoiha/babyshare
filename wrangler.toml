@@ -28,11 +28,10 @@ run_worker_first = [
   "/delete/*",
 ]
 
-# Replace this placeholder with the ID returned by `wrangler d1 create babyshare`.
 [[d1_databases]]
 binding = "DB"
 database_name = "babyshare"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "cd823cd8-c2f0-4d20-a2e0-570717896e62"
 migrations_dir = "cloudflare/migrations"
 
 [[durable_objects.bindings]]
