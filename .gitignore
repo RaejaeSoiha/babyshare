@@ -6,6 +6,10 @@ sessions/
 !.env.example
 !.env.production.example
 !client/.env.production.example
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+.wrangler/
 users.json
 shares.json
 guestFiles.json

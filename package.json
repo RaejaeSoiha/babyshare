@@ -9,6 +9,12 @@
         "client:dev": "npm run dev --prefix client",
         "client:build": "npm run build --prefix client",
         "build": "npm run client:build",
+        "cf:build": "npm run client:build",
+        "cf:dev": "npm run cf:build && wrangler dev --local",
+        "cf:dry-run": "npm run cf:build && wrangler deploy --dry-run",
+        "cf:deploy": "npm run cf:build && wrangler deploy",
+        "cf:d1:migrate:local": "wrangler d1 migrations apply babyshare --local",
+        "cf:d1:migrate": "wrangler d1 migrations apply babyshare --remote",
         "check:production-config": "node scripts/validate-production-config.js",
         "sidecar:build": "node scripts/build-sidecar.js",
         "test": "node --test"
@@ -25,7 +31,8 @@
     },
     "devDependencies": {
         "nodemon": "^3.1.0",
-        "pkg": "^5.8.1"
+        "pkg": "^5.8.1",
+        "wrangler": "4.40.0"
     },
     "engines": {
         "node": ">=18.0.0"

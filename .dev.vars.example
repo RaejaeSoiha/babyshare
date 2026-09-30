@@ -1,0 +1,5 @@
+# Local-only values for `npm run cf:dev`. Do not commit a real .dev.vars file.
+SESSION_SECRET=replace-with-a-random-32-character-minimum-secret
+LAN_SCOPE_SECRET=replace-with-a-second-random-32-character-minimum-secret
+BOOTSTRAP_ADMIN_USERNAME=admin
+BOOTSTRAP_ADMIN_PASSWORD=replace-with-a-strong-bootstrap-password

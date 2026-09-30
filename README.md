@@ -62,6 +62,75 @@ Back up `runtime-data/` and `FILE_KEY` together. A production startup refuses to
 create a default account, so restore a valid `users.json` or provision an
 administrator before the first start.
 
+## Cloudflare Workers deployment
+
+BabyShare includes a separate Cloudflare Worker runtime in
+`cloudflare/worker.mjs`. It serves the built React application from Workers
+Static Assets and does not load Express, `session-file-store`, Multer, or any
+local files. The existing Node runtime is unchanged: `npm start` remains the
+correct command for a private LAN hub and its local data directory.
+
+The Worker stores accounts, sessions, and link metadata in D1; file bytes in
+R2; and short-lived nearby presence, chat, WebRTC signals, and relay transfer
+state in a Durable Object. R2 encrypts stored objects at rest, while the local
+runtime continues using its existing application-level AES encrypted files.
+
+### One-time Cloudflare setup
+
+1. Sign in with `npx wrangler login`.
+2. Create a D1 database: `npx wrangler d1 create babyshare`. Copy the returned
+   database ID into `wrangler.toml`, replacing the all-zero `database_id`.
+3. Create the R2 bucket named in `wrangler.toml`:
+   `npx wrangler r2 bucket create babyshare-files`. You may choose another
+   bucket name, but update `wrangler.toml` to match it.
+4. Apply the database schema: `npm run cf:d1:migrate`.
+5. Set these Worker secrets, each with a distinct random value of at least 32
+   characters except the bootstrap password:
+
+   ```bash
+   npx wrangler secret put SESSION_SECRET
+   npx wrangler secret put LAN_SCOPE_SECRET
+   npx wrangler secret put BOOTSTRAP_ADMIN_PASSWORD
+   ```
+
+   `SESSION_SECRET` signs the secure session cookie. `LAN_SCOPE_SECRET` turns
+   a Cloudflare-observed network address into an opaque nearby-user scope. The
+   bootstrap password creates the `BOOTSTRAP_ADMIN_USERNAME` (default `admin`)
+   on the first Worker request. Sign in once, then remove the bootstrap secret
+   so it cannot be used again: `npx wrangler secret delete BOOTSTRAP_ADMIN_PASSWORD`.
+6. Confirm `CF_MAX_UPLOAD_BYTES` matches your Cloudflare zone upload limit
+   before deploying. Free and Pro zones allow 100 MB request bodies, Business
+   allows 200 MB, and Enterprise can be configured up to 5 GB. The local app
+   retains its 1 GB limit; a Cloudflare zone that accepts less will reject an
+   oversized request before the Worker can receive it.
+
+The Durable Object and static-asset binding are declared in `wrangler.toml` and
+are provisioned by the first `wrangler deploy`; they do not need separate manual
+creation. Keep the Worker on a custom domain or its `workers.dev` address so the
+frontend and API share one HTTPS origin.
+
+### Cloudflare commands
+
+```bash
+npm run cf:build        # build the frontend for Workers Static Assets
+npm run cf:dev          # run the Worker locally with .dev.vars
+npm run cf:dry-run      # bundle and validate; never deploys
+npm run cf:d1:migrate   # apply D1 migrations to the configured remote database
+npm run cf:deploy       # deploy after the resources and secrets above exist
+```
+
+Copy `.dev.vars.example` to the ignored `.dev.vars` only for local Worker
+development. Existing local `users.json`, `shares.json`, and encrypted upload
+files are intentionally not copied to Cloudflare: they require a separate,
+planned data migration and the local `FILE_KEY`. Do not point a Cloudflare
+deployment at a local data directory.
+
+Cloudflare cannot see a browser's RFC1918 LAN address or send the Node hub's
+UDP multicast announcements. In Worker mode, nearby users are scoped to the
+same public network egress address; use `npm start` for the existing strict
+same-LAN and multicast behavior. Both modes retain recipient approval, direct
+WebRTC transfers, the temporary relay fallback, and ephemeral chat semantics.
+
 ## Checks
 
 ```bash
@@ -123,8 +192,9 @@ Either nearby device can request a private chat; the other person must accept it
 Chat messages exist only while that chat is active and only in server memory.
 When either person selects **End chat**, the entire conversation is deleted
 immediately for both devices. Declined chat and transfer requests are deleted
-immediately, inactive chats expire automatically after 30 minutes, and device
-presence and transfer metadata are memory-only. A successful one-time download
+immediately. An active chat remains open while both participants keep their
+BabyShare presence alive; device presence and transfer metadata are memory-only.
+A successful one-time download
 deletes both the encrypted temporary file and its transfer record.
 
 The Node host emits low-TTL LAN multicast service announcements on

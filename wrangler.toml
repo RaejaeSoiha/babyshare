@@ -1,0 +1,58 @@
+name = "babyshare"
+main = "cloudflare/worker.mjs"
+compatibility_date = "2025-09-24"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+directory = "./client/dist"
+binding = "ASSETS"
+run_worker_first = [
+  "/",
+  "/api/*",
+  "/upload",
+  "/download/*",
+  "/secure-download/*",
+  "/guest-download",
+  "/guest-login",
+  "/guest-upload",
+  "/guest-view",
+  "/login",
+  "/logout",
+  "/register",
+  "/dashboard",
+  "/files",
+  "/admin",
+  "/home",
+  "/list",
+  "/manage-users",
+  "/delete/*",
+]
+
+# Replace this placeholder with the ID returned by `wrangler d1 create babyshare`.
+[[d1_databases]]
+binding = "DB"
+database_name = "babyshare"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "cloudflare/migrations"
+
+# Create this exact R2 bucket name, or change it here before deployment.
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "babyshare-files"
+
+[[durable_objects.bindings]]
+name = "LAN_HUB"
+class_name = "BabyShareLanHub"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["BabyShareLanHub"]
+
+[vars]
+# Free and Pro zones accept request bodies up to 100 MB. Keep the browser UI's
+# local 1 GB behavior unchanged; configure this to your Cloudflare zone limit.
+CF_MAX_UPLOAD_BYTES = "104857600"
+BOOTSTRAP_ADMIN_USERNAME = "admin"
+
+[triggers]
+crons = ["17 * * * *"]
