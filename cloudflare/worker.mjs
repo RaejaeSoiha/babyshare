@@ -1,14 +1,11 @@
 // Cloudflare production runtime. The Node/Express server remains the local LAN runtime.
-// Force the PNG renderer: package browser aliases need a DOM canvas, which a
-// Worker deliberately does not provide.
-import QRCode from "qrcode/lib/server.js";
+// This free-plan runtime never receives or stores file bytes: transfers stay
+// between approved nearby browsers over WebRTC.
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000;
-const USER_SHARE_DURATION_MS = 30 * DAY_MS;
-const GUEST_SHARE_DURATION_MS = DAY_MS;
 const DEVICE_TTL_MS = 45_000;
 const CHAT_PENDING_TTL_MS = 10 * 60 * 1000;
 const PENDING_TTL_MS = 10 * 60 * 1000;
@@ -258,62 +255,13 @@ async function requireUser(request, env) {
   return currentSession(request, env);
 }
 
-function shareUrl(url, pathname) {
-  return new URL(pathname, url.origin).toString();
-}
-
-async function userShare(env, username, id) {
-  return env.DB.prepare("SELECT id, username, object_key, original_name, label, password_hash, expires_at, uploaded_at FROM user_shares WHERE username = ? AND id = ?")
-    .bind(username, id).first();
-}
-
-async function guestShare(env, token) {
-  if (!/^[a-f0-9]{16,64}$/i.test(token)) return null;
-  return env.DB.prepare("SELECT token, object_key, original_name, label, password_hash, expires_at, uploaded_at FROM guest_shares WHERE token = ?")
-    .bind(token).first();
-}
-
-async function deleteShare(env, share, kind) {
-  if (!share) return;
-  await Promise.all([
-    env.FILES.delete(String(share.object_key)).catch(() => {}),
-    kind === "guest"
-      ? env.DB.prepare("DELETE FROM guest_shares WHERE token = ?").bind(String(share.token)).run()
-      : env.DB.prepare("DELETE FROM user_shares WHERE id = ?").bind(String(share.id)).run(),
-  ]);
-}
-
-async function sendStoredFile(env, share, original, requestedAction) {
-  const object = await env.FILES.get(String(share.object_key));
-  if (!object || !object.body) return new Response("File not found", { status: 404 });
-  const preview = requestedAction === "preview" && canPreview(original);
-  return new Response(object.body, {
-    headers: {
-      "Cache-Control": "private, no-store, max-age=0",
-      "Content-Disposition": safeDisposition(original, preview ? "inline" : "attachment"),
-      "Content-Length": String(object.size),
-      "Content-Type": contentType(original),
-      "Pragma": "no-cache",
-      "X-Content-Type-Options": "nosniff",
-    },
-  });
-}
-
-function expired(share) {
-  return !share || Number(share.expires_at) <= Date.now();
-}
-
-async function listUserFiles(env, username) {
-  const result = await env.DB.prepare("SELECT id, original_name, label, password_hash, expires_at, uploaded_at FROM user_shares WHERE username = ? AND expires_at > ? ORDER BY uploaded_at DESC")
-    .bind(username, Date.now()).all();
-  return (result.results || []).map((row) => ({
-    expires: Number(row.expires_at),
-    file: String(row.id),
-    label: String(row.label || ""),
-    original: String(row.original_name),
-    passwordProtected: Boolean(row.password_hash),
-    uploaded: Number(row.uploaded_at),
-  }));
+async function peerOnly(request) {
+  await discardRequestBody(request);
+  const message = "Cloudflare Free mode sends files directly between approved nearby browsers and does not store uploads or download links.";
+  if (request.method === "GET" && !request.headers.get("Accept")?.includes("application/json")) {
+    return html(renderError("Direct transfer only", message), 410);
+  }
+  return json({ error: "peer_only", message }, { status: 410 });
 }
 
 async function serveSpa(request, env) {
@@ -347,6 +295,11 @@ async function handleRegister(request, env) {
   return new Response(null, { headers: { Location: "/login?created=1" }, status: 302 });
 }
 
+/*
+ * The Node runtime retains the legacy stored-upload implementation. Cloudflare
+ * Free mode intentionally excludes it so the Worker has no object-storage
+ * dependency. The request router below returns peer_only before these legacy
+ * paths can be reached.
 async function handleUserUpload(request, env, url, session) {
   if (!session) return json({ error: "unauthorized" }, { status: 401 });
   const form = await request.formData();
@@ -489,39 +442,33 @@ async function handleGuestLogin(request, env, url) {
   }
   return sendStoredFile(env, share, filename, action(formValue(form, "action")));
 }
+*/
 
 async function handleFiles(request, env, session) {
   if (!session) return json({ error: "unauthorized" }, { status: 401 });
   if (session.username === "admin") {
     const users = (await env.DB.prepare("SELECT username FROM users ORDER BY username").all()).results || [];
-    return json({ isAdmin: true, users: await Promise.all(users.map(async (row) => ({ files: await listUserFiles(env, String(row.username)), username: String(row.username) }))) });
+    return json({ isAdmin: true, users: users.map((row) => ({ files: [], username: String(row.username) })) });
   }
-  return json({ files: await listUserFiles(env, session.username), isAdmin: false, user: session.username });
+  return json({ files: [], isAdmin: false, user: session.username });
 }
 
-async function handleDeleteFile(env, session, username, id) {
+async function handleDeleteFile(request, session, username) {
   if (!session) return json({ error: "unauthorized" }, { status: 401 });
   if (session.username !== "admin" && session.username !== username) return json({ error: "forbidden" }, { status: 403 });
-  const share = await userShare(env, username, id);
-  if (!share) return json({ error: "not_found" }, { status: 404 });
-  await deleteShare(env, share, "user");
-  return empty();
+  return peerOnly(request);
 }
 
 async function handleAdmin(request, env, session, url) {
   if (!session) return json({ error: "unauthorized" }, { status: 401 });
   if (session.username !== "admin") return json({ error: "forbidden" }, { status: 403 });
   if (url.pathname === "/api/admin/overview") {
-    const [users, guests] = await Promise.all([
-      env.DB.prepare("SELECT COUNT(*) AS count FROM users").first(),
-      env.DB.prepare("SELECT COUNT(*) AS count FROM guest_shares WHERE expires_at > ?").bind(Date.now()).first(),
-    ]);
-    return json({ guestsCount: Number(guests?.count || 0), usersCount: Number(users?.count || 0) });
+    const users = await env.DB.prepare("SELECT COUNT(*) AS count FROM users").first();
+    return json({ guestsCount: 0, usersCount: Number(users?.count || 0) });
   }
   if (url.pathname === "/api/admin/users" && request.method === "GET") {
-    const rows = await env.DB.prepare("SELECT u.username, COUNT(s.id) AS file_count FROM users u LEFT JOIN user_shares s ON s.username = u.username AND s.expires_at > ? GROUP BY u.username ORDER BY u.username")
-      .bind(Date.now()).all();
-    return json({ users: (rows.results || []).map((row) => ({ fileCount: Number(row.file_count || 0), username: String(row.username) })) });
+    const rows = await env.DB.prepare("SELECT username FROM users ORDER BY username").all();
+    return json({ users: (rows.results || []).map((row) => ({ fileCount: 0, username: String(row.username) })) });
   }
   if (url.pathname === "/api/admin/users" && request.method === "POST") {
     const body = await request.json().catch(() => ({}));
@@ -548,10 +495,8 @@ async function handleAdmin(request, env, session, url) {
   if (remove && request.method === "DELETE") {
     const username = decodeURIComponent(remove[1]);
     if (username === "admin") return json({ error: "protected" }, { status: 403 });
-    const objects = await env.DB.prepare("SELECT object_key FROM user_shares WHERE username = ?").bind(username).all();
     const result = await env.DB.prepare("DELETE FROM users WHERE username = ?").bind(username).run();
     if (!result.meta.changes) return json({ error: "not_found" }, { status: 404 });
-    await Promise.all((objects.results || []).map((row) => env.FILES.delete(String(row.object_key)).catch(() => {})));
     return empty();
   }
   return json({ error: "not_found" }, { status: 404 });
@@ -580,17 +525,7 @@ async function proxyLan(request, env, session) {
 
 async function cleanupExpired(env) {
   const now = Date.now();
-  const [users, guests] = await Promise.all([
-    env.DB.prepare("SELECT id, object_key FROM user_shares WHERE expires_at <= ? LIMIT 1000").bind(now).all(),
-    env.DB.prepare("SELECT token, object_key FROM guest_shares WHERE expires_at <= ? LIMIT 1000").bind(now).all(),
-  ]);
-  const keys = [...(users.results || []), ...(guests.results || [])].map((row) => String(row.object_key));
-  if (keys.length) await env.FILES.delete(keys);
-  await env.DB.batch([
-    env.DB.prepare("DELETE FROM user_shares WHERE expires_at <= ?").bind(now),
-    env.DB.prepare("DELETE FROM guest_shares WHERE expires_at <= ?").bind(now),
-    env.DB.prepare("DELETE FROM sessions WHERE expires_at <= ?").bind(now),
-  ]);
+  await env.DB.prepare("DELETE FROM sessions WHERE expires_at <= ?").bind(now).run();
 }
 
 export default {
@@ -609,6 +544,17 @@ export default {
           ? Response.redirect(new URL("/dashboard", url), 302)
           : env.ASSETS.fetch(request);
       }
+      if (
+        url.pathname === "/upload"
+        || url.pathname === "/guest-upload"
+        || url.pathname === "/guest-view"
+        || url.pathname === "/guest-download"
+        || url.pathname === "/guest-login"
+        || url.pathname.startsWith("/secure-download/")
+        || url.pathname.startsWith("/download/")
+        || url.pathname.startsWith("/api/guest-info/")
+        || (url.pathname.startsWith("/api/files/") && request.method === "DELETE")
+      ) return peerOnly(request);
       if (url.pathname.startsWith("/api/lan/")) return proxyLan(request, env, await currentSession(request, env));
       if (["/login", "/register", "/api/me", "/api/files", "/upload", "/logout"].includes(url.pathname) || url.pathname.startsWith("/api/admin/")) {
         await ensureBootstrapAdmin(env);
@@ -625,36 +571,7 @@ export default {
         return session ? json({ isAdmin: session.username === "admin", user: session.username }) : json({ error: "unauthorized" }, { status: 401 });
       }
       if (url.pathname === "/api/files" && request.method === "GET") return handleFiles(request, env, await requireUser(request, env));
-      const deleteFile = /^\/api\/files\/([^/]+)\/([^/]+)$/u.exec(url.pathname);
-      if (deleteFile && request.method === "DELETE") return handleDeleteFile(env, await requireUser(request, env), decodeURIComponent(deleteFile[1]), decodeURIComponent(deleteFile[2]));
       if (url.pathname.startsWith("/api/admin/")) return handleAdmin(request, env, await requireUser(request, env), url);
-      if (url.pathname === "/upload" && request.method === "POST") return handleUserUpload(request, env, url, await requireUser(request, env));
-      if (url.pathname === "/guest-upload" && request.method === "POST") return handleGuestUpload(request, env, url);
-      if (url.pathname === "/guest-view" && request.method === "GET") return handleGuestView(request, env, url);
-      if (url.pathname === "/guest-download" && request.method === "GET") return handleGuestDownload(request, env, url);
-      if (url.pathname === "/guest-login") return handleGuestLogin(request, env, url);
-      if (url.pathname.startsWith("/secure-download/")) return handleSecureDownload(request, env, url);
-      if (url.pathname.startsWith("/download/") && request.method === "GET") {
-        const segments = url.pathname.split("/");
-        const username = decodeURIComponent(segments[2] || "");
-        const id = decodeURIComponent(segments[3] || "");
-        const session = await requireUser(request, env);
-        if (!session) return new Response("Unauthorized", { status: 401 });
-        if (session.username !== "admin" && session.username !== username) return new Response("No access", { status: 403 });
-        const share = await userShare(env, username, id);
-        if (!share) return new Response("File not found", { status: 404 });
-        if (expired(share)) {
-          await deleteShare(env, share, "user");
-          return new Response("This share link has expired", { status: 410 });
-        }
-        return sendStoredFile(env, share, String(share.original_name), "download");
-      }
-      if (url.pathname.startsWith("/api/guest-info/") && request.method === "GET") {
-        const token = decodeURIComponent(url.pathname.slice("/api/guest-info/".length));
-        const share = await guestShare(env, token);
-        if (expired(share)) return json({ error: "expired" }, { status: 404 });
-        return json({ expiresAt: new Date(Number(share.expires_at)).toISOString(), label: String(share.label || ""), original: String(share.original_name), passwordRequired: Boolean(share.password_hash) });
-      }
       if (/^\/delete\/[^/]+\/[^/]+$/u.test(url.pathname)) {
         return new Response("Use the file management page to delete a file", { status: 405 });
       }
@@ -755,7 +672,6 @@ export class BabyShareLanHub {
     for (const [id, transfer] of this.transfers) {
       const ttl = transfer.status === "pending" ? PENDING_TTL_MS : ["accepted", "receiving"].includes(transfer.status) ? ACCEPTED_TTL_MS : READY_TTL_MS;
       if (transfer.updatedAt + ttl >= now) continue;
-      if (transfer.storedFile) this.env.FILES.delete(transfer.storedFile).catch(() => {});
       this.transfers.delete(id);
     }
     for (const [deviceId, queue] of this.signals) {
@@ -891,7 +807,7 @@ export class BabyShareLanHub {
       if (senderCount + files.length > MAX_ACTIVE_TRANSFERS_PER_DEVICE || recipientCount + files.length > MAX_ACTIVE_TRANSFERS_PER_DEVICE) return json({ error: "transfer_limit_reached" }, { status: 400 });
       const now = Date.now();
       const transfers = files.map((file) => {
-        const transfer = { bytesTransferred: 0, createdAt: now, id: crypto.randomUUID(), name: file.name, recipientId: recipient.id, recipientName: recipient.name, senderId: device.id, senderName: device.name, size: file.size, status: "pending", storedFile: null, transport: "peer", updatedAt: now };
+        const transfer = { bytesTransferred: 0, createdAt: now, id: crypto.randomUUID(), name: file.name, recipientId: recipient.id, recipientName: recipient.name, senderId: device.id, senderName: device.name, size: file.size, status: "pending", transport: "peer", updatedAt: now };
         this.transfers.set(transfer.id, transfer); return this.clientTransfer(transfer, device);
       });
       return json({ transfers }, { status: 201 });
@@ -941,28 +857,14 @@ export class BabyShareLanHub {
     }
     if (operation === "fallback" && request.method === "POST") {
       await request.json().catch(() => ({}));
-      if (transfer.transport !== "peer" || !["accepted", "receiving"].includes(transfer.status)) return json({ error: "transfer_unavailable" }, { status: 409 });
-      transfer.transport = "relay"; transfer.status = "accepted"; transfer.bytesTransferred = 0; transfer.updatedAt = Date.now(); return json({ transfer: this.clientTransfer(transfer, device) });
+      return json({ error: "direct_connection_required" }, { status: 409 });
     }
     if (operation === "content" && request.method === "POST") {
-      if (transfer.status !== "accepted") return json({ error: "transfer_not_accepted" }, { status: 409 });
-      const form = await request.formData();
-      const file = form.get("file");
-      if (!isWorkerFile(file) || file.name !== transfer.name || file.size !== transfer.size || file.size > fileLimit(this.env)) return json({ error: "invalid_transfer_file" }, { status: 400 });
-      transfer.transport = "relay"; transfer.status = "receiving"; transfer.updatedAt = Date.now();
-      const objectKey = `lan/${transfer.id}`;
-      await this.env.FILES.put(objectKey, file.stream(), { httpMetadata: { contentType: file.type || contentType(file.name) } });
-      transfer.storedFile = objectKey; transfer.bytesTransferred = transfer.size; transfer.status = "ready"; transfer.updatedAt = Date.now();
-      return json({ transfer: this.clientTransfer(transfer, device) }, { status: 201 });
+      await discardRequestBody(request);
+      return json({ error: "direct_connection_required" }, { status: 409 });
     }
     if (operation === "download" && request.method === "GET") {
-      if (transfer.status !== "ready" || transfer.transport !== "relay" || !transfer.storedFile) return json({ error: "transfer_unavailable" }, { status: 404 });
-      const object = await this.env.FILES.get(transfer.storedFile);
-      if (!object || !object.body) return json({ error: "transfer_unavailable" }, { status: 404 });
-      const storedFile = transfer.storedFile;
-      this.transfers.delete(id);
-      await this.env.FILES.delete(storedFile).catch(() => {});
-      return new Response(object.body, { headers: { "Cache-Control": "private, no-store, max-age=0", "Content-Disposition": safeDisposition(transfer.name, "attachment"), "Content-Length": String(object.size), "Content-Type": contentType(transfer.name), "X-Content-Type-Options": "nosniff" } });
+      return json({ error: "direct_connection_required" }, { status: 409 });
     }
     await discardRequestBody(request);
     return json({ error: "not_found" }, { status: 404 });

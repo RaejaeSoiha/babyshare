@@ -70,21 +70,19 @@ Static Assets and does not load Express, `session-file-store`, Multer, or any
 local files. The existing Node runtime is unchanged: `npm start` remains the
 correct command for a private LAN hub and its local data directory.
 
-The Worker stores accounts, sessions, and link metadata in D1; file bytes in
-R2; and short-lived nearby presence, chat, WebRTC signals, and relay transfer
-state in a Durable Object. R2 encrypts stored objects at rest, while the local
-runtime continues using its existing application-level AES encrypted files.
+The free Worker stores only accounts and sessions in D1. Nearby presence, chat,
+and WebRTC signaling live briefly in a Durable Object. File bytes never enter
+Cloudflare: an approved sender transfers them directly to the recipient's
+browser over WebRTC. The local runtime continues using its existing
+application-level AES encrypted files and optional local file links.
 
 ### One-time Cloudflare setup
 
 1. Sign in with `npx wrangler login`.
 2. Create a D1 database: `npx wrangler d1 create babyshare`. Copy the returned
    database ID into `wrangler.toml`, replacing the all-zero `database_id`.
-3. Create the R2 bucket named in `wrangler.toml`:
-   `npx wrangler r2 bucket create babyshare-files`. You may choose another
-   bucket name, but update `wrangler.toml` to match it.
-4. Apply the database schema: `npm run cf:d1:migrate`.
-5. Set these Worker secrets, each with a distinct random value of at least 32
+3. Apply the database schema: `npm run cf:d1:migrate`.
+4. Set these Worker secrets, each with a distinct random value of at least 32
    characters except the bootstrap password:
 
    ```bash
@@ -98,16 +96,11 @@ runtime continues using its existing application-level AES encrypted files.
    bootstrap password creates the `BOOTSTRAP_ADMIN_USERNAME` (default `admin`)
    on the first Worker request. Sign in once, then remove the bootstrap secret
    so it cannot be used again: `npx wrangler secret delete BOOTSTRAP_ADMIN_PASSWORD`.
-6. Confirm `CF_MAX_UPLOAD_BYTES` matches your Cloudflare zone upload limit
-   before deploying. Free and Pro zones allow 100 MB request bodies, Business
-   allows 200 MB, and Enterprise can be configured up to 5 GB. The local app
-   retains its 1 GB limit; a Cloudflare zone that accepts less will reject an
-   oversized request before the Worker can receive it.
-
 The Durable Object and static-asset binding are declared in `wrangler.toml` and
 are provisioned by the first `wrangler deploy`; they do not need separate manual
-creation. Keep the Worker on a custom domain or its `workers.dev` address so the
-frontend and API share one HTTPS origin.
+creation. No R2 subscription or payment method is required. Keep the Worker on
+a custom domain or its `workers.dev` address so the frontend and API share one
+HTTPS origin.
 
 ### Cloudflare commands
 
@@ -121,15 +114,16 @@ npm run cf:deploy       # deploy after the resources and secrets above exist
 
 Copy `.dev.vars.example` to the ignored `.dev.vars` only for local Worker
 development. Existing local `users.json`, `shares.json`, and encrypted upload
-files are intentionally not copied to Cloudflare: they require a separate,
-planned data migration and the local `FILE_KEY`. Do not point a Cloudflare
-deployment at a local data directory.
+files are intentionally not copied to Cloudflare. The free Worker intentionally
+does not offer server-stored uploads, QR download pages, password-protected
+links, or a relay fallback; use the local Node runtime for those features.
 
 Cloudflare cannot see a browser's RFC1918 LAN address or send the Node hub's
 UDP multicast announcements. In Worker mode, nearby users are scoped to the
 same public network egress address; use `npm start` for the existing strict
 same-LAN and multicast behavior. Both modes retain recipient approval, direct
-WebRTC transfers, the temporary relay fallback, and ephemeral chat semantics.
+WebRTC transfers, and ephemeral chat semantics; only the local mode has the
+temporary relay fallback.
 
 ## Checks
 

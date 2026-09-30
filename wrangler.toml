@@ -35,11 +35,6 @@ database_name = "babyshare"
 database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "cloudflare/migrations"
 
-# Create this exact R2 bucket name, or change it here before deployment.
-[[r2_buckets]]
-binding = "FILES"
-bucket_name = "babyshare-files"
-
 [[durable_objects.bindings]]
 name = "LAN_HUB"
 class_name = "BabyShareLanHub"
@@ -49,9 +44,6 @@ tag = "v1"
 new_sqlite_classes = ["BabyShareLanHub"]
 
 [vars]
-# Free and Pro zones accept request bodies up to 100 MB. Keep the browser UI's
-# local 1 GB behavior unchanged; configure this to your Cloudflare zone limit.
-CF_MAX_UPLOAD_BYTES = "104857600"
 BOOTSTRAP_ADMIN_USERNAME = "admin"
 
 [triggers]
