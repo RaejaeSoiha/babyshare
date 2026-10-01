@@ -18,7 +18,10 @@ const MAX_CHAT_MESSAGE_LENGTH = 1_000;
 const MAX_SIGNAL_BYTES = 32 * 1024;
 const MAX_SIGNALS_PER_DEVICE = 24;
 const SIGNAL_TTL_MS = 60 * 1000;
-const PASSWORD_ITERATIONS = 310_000;
+// Workers Free allows 10 ms of CPU per request. Keep password operations below
+// that limit in the Cloudflare runtime; the separate Node/LAN server retains
+// its existing password implementation.
+const PASSWORD_ITERATIONS = 10_000;
 
 const CONTENT_TYPES = {
   ".gif": "image/gif",
@@ -293,10 +296,12 @@ async function handleLogin(request, env) {
   const form = await request.formData();
   const username = normalizedUsername(formValue(form, "username"));
   const password = formValue(form, "password");
-  const user = await env.DB.prepare("SELECT password_hash FROM users WHERE username = ?").bind(username).first();
-  const passwordIsValid = user && await passwordMatches(password, String(user.password_hash));
-  if (!passwordIsValid && !(await recoverBootstrapAdmin(env, username, password))) {
-    return html(renderError("Unable to sign in", "Check your username and password, then try again."), 401);
+  const recoveredBootstrapAdmin = await recoverBootstrapAdmin(env, username, password);
+  if (!recoveredBootstrapAdmin) {
+    const user = await env.DB.prepare("SELECT password_hash FROM users WHERE username = ?").bind(username).first();
+    if (!user || !(await passwordMatches(password, String(user.password_hash)))) {
+      return html(renderError("Unable to sign in", "Check your username and password, then try again."), 401);
+    }
   }
   if (!env.SESSION_SECRET) {
     return html(renderError("Sign-in is not configured", "The workspace is missing its encrypted session secret. Add SESSION_SECRET in Worker settings, then try again."), 503);
