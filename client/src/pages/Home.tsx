@@ -79,7 +79,7 @@ export default function Home() {
   const continueToTransfer = () => {
     if (!files.length) return setError("Choose at least one file first.");
     if (!signedIn) {
-      navigate("/guest-upload");
+      navigate("/guest-upload", { state: { autoCreateQr: true, pendingFile: files[0] } });
       return;
     }
     navigate("/dashboard", { state: { pendingFiles: files } });
@@ -115,7 +115,7 @@ export default function Home() {
                 <input ref={inputRef} className="visually-hidden" type="file" multiple onChange={(event) => event.target.files && chooseFiles(event.target.files)} aria-label="Choose files to transfer" />
                 <div className="upload-actions">
                   <button className="browse-button" type="button" onClick={() => inputRef.current?.click()}>Choose files</button>
-                  <button className="upload-button" type="button" onClick={continueToTransfer} disabled={!accountChecked || !files.length}>{signedIn ? "Start direct transfer" : "Continue with QR pairing"}</button>
+                  <button className="upload-button" type="button" onClick={continueToTransfer} disabled={!accountChecked || !files.length}>{signedIn ? "Start direct transfer" : "Create QR code"}</button>
                 </div>
                 <p className="upload-hint">Files move directly between browsers. BabyShare does not store a copy.</p>
               </div>

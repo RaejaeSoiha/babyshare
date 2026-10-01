@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { FormEvent } from "react";
 import QRCode from "qrcode";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   completeQrPairing,
   createQrPairing,
@@ -37,11 +37,16 @@ function directTransferError(error: unknown) {
 }
 
 export default function GuestUpload() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const pendingFile = (location.state as { autoCreateQr?: unknown; pendingFile?: unknown } | null)?.pendingFile;
+  const fileFromHome = pendingFile instanceof File ? pendingFile : null;
+  const autoCreateRef = useRef(Boolean(fileFromHome && (location.state as { autoCreateQr?: unknown } | null)?.autoCreateQr));
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const startedRef = useRef(false);
-  const [file, setFile] = useState<File | null>(null);
+  const [file, setFile] = useState<File | null>(fileFromHome);
   const [pairing, setPairing] = useState<QrPairing | null>(null);
   const [credentials, setCredentials] = useState<QrCredentials | null>(null);
   const [qrImage, setQrImage] = useState("");
@@ -164,24 +169,23 @@ export default function GuestUpload() {
 
   useEffect(() => () => closeConnection(), [closeConnection]);
 
-  const createPair = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!file) {
+  const createPair = useCallback(async (selectedFile: File | null = file) => {
+    if (!selectedFile) {
       setError("Choose one file to send.");
       return;
     }
-    if (file.size > MAX_FILE_SIZE) {
+    if (selectedFile.size > MAX_FILE_SIZE) {
       setError("The file must be 1 GB or smaller.");
       return;
     }
     setCreating(true);
     setError("");
     try {
-      const created = await createQrPairing(file);
+      const created = await createQrPairing(selectedFile);
       const image = await QRCode.toDataURL(created.url, { errorCorrectionLevel: "M", margin: 1, width: 260 });
       startedRef.current = false;
       setCredentials({ pairToken: created.pairToken, role: "sender", secret: created.senderSecret });
-      setPairing({ expiresAt: created.expiresAt, file: { name: file.name, size: file.size }, status: "waiting" });
+      setPairing({ expiresAt: created.expiresAt, file: { name: selectedFile.name, size: selectedFile.size }, status: "waiting" });
       setQrImage(image);
       setShortCode(created.shortCode);
       setTransferState("waiting");
@@ -190,7 +194,19 @@ export default function GuestUpload() {
     } finally {
       setCreating(false);
     }
-  };
+  }, [file]);
+
+  useEffect(() => {
+    if (!fileFromHome) return;
+    setFile(fileFromHome);
+    navigate("/guest-upload", { replace: true, state: null });
+  }, [fileFromHome, navigate]);
+
+  useEffect(() => {
+    if (!autoCreateRef.current || !fileFromHome) return;
+    autoCreateRef.current = false;
+    void createPair(fileFromHome);
+  }, [createPair, fileFromHome]);
 
   const startAnother = () => {
     closeConnection();
@@ -224,7 +240,7 @@ export default function GuestUpload() {
           <p className="guest-upload-copy">Choose a file, then let the recipient scan your QR code. The file travels directly between your browsers.</p>
 
           {!pairing ? (
-            <form className="guest-upload-form" onSubmit={createPair}>
+            <form className="guest-upload-form" onSubmit={(event) => { event.preventDefault(); void createPair(); }}>
               <label className="guest-file-field"><span>Select file</span><input ref={fileInputRef} type="file" required onChange={(event) => { setFile(event.target.files?.[0] || null); setError(""); }} /></label>
               {file && <p className="guest-selected-file" aria-live="polite"><strong>{file.name}</strong><span>{formatFileSize(file.size)}</span></p>}
               <button type="submit" className="guest-upload-submit" disabled={creating}>{creating ? "Preparing QR code…" : "Create QR code"}</button>
