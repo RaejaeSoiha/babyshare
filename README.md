@@ -70,11 +70,12 @@ Static Assets and does not load Express, `session-file-store`, Multer, or any
 local files. The existing Node runtime is unchanged: `npm start` remains the
 correct command for a private LAN hub and its local data directory.
 
-The free Worker stores only accounts and sessions in D1. Nearby presence, chat,
-and WebRTC signaling live briefly in a Durable Object. File bytes never enter
-Cloudflare: an approved sender transfers them directly to the recipient's
-browser over WebRTC. The local runtime continues using its existing
-application-level AES encrypted files and optional local file links.
+The free Worker stores accounts, sessions, and small signed-in shares in D1.
+Signed-in file bytes are AES-GCM encrypted before storage and are limited to
+about 1.4 MB each by D1's 2 MB row limit. Nearby presence, chat, guest sharing,
+and WebRTC signaling live briefly in a Durable Object; those transfers stay
+directly between approved browsers. The local runtime continues using its
+existing application-level AES encrypted files and optional local file links.
 
 ### One-time Cloudflare setup
 
@@ -117,9 +118,10 @@ npm run cf:deploy       # deploy after the resources and secrets above exist
 
 Copy `.dev.vars.example` to the ignored `.dev.vars` only for local Worker
 development. Existing local `users.json`, `shares.json`, and encrypted upload
-files are intentionally not copied to Cloudflare. The free Worker intentionally
-does not offer server-stored uploads, QR download pages, password-protected
-links, or a relay fallback; use the local Node runtime for those features.
+files are intentionally not copied to Cloudflare. The free Worker offers
+password-protected links for small signed-in shares; use the local Node runtime
+for larger stored uploads. Guest transfers retain their direct peer-to-peer
+flow and no relay fallback.
 
 Cloudflare cannot see a browser's RFC1918 LAN address or send the Node hub's
 UDP multicast announcements. In Worker mode, nearby users are scoped to the

@@ -4,7 +4,7 @@ import type { ChangeEvent, DragEvent } from "react";
 import { Link } from "react-router-dom";
 import { apiFetch, uploadFormData } from "../lib/api";
 
-type Me = { user: string; isAdmin: boolean };
+type Me = { user: string; isAdmin: boolean; maxUploadBytes?: number };
 type UploadLink = { expires: number; name: string; passwordRequired: boolean; qr: string; url: string };
 type UploadResult = { links: UploadLink[] };
 
@@ -67,6 +67,8 @@ export default function Dashboard() {
   const [progress, setProgress] = useState(0);
   const [copiedUrl, setCopiedUrl] = useState("");
   const [error, setError] = useState("");
+  const maxUploadBytes = me?.maxUploadBytes ?? MAX_FILE_SIZE;
+  const maxUploadLabel = formatFileSize(maxUploadBytes);
 
   useEffect(() => {
     apiFetch("/api/me")
@@ -92,9 +94,9 @@ export default function Dashboard() {
       setError("Choose up to 20 files at a time.");
       return;
     }
-    if (selected.some((file) => file.size > MAX_FILE_SIZE)) {
+    if (selected.some((file) => file.size > maxUploadBytes)) {
       setFiles([]);
-      setError("Each file must be 1 GB or smaller.");
+      setError(`Each file must be ${maxUploadLabel} or smaller.`);
       return;
     }
     setFiles(selected);
@@ -143,7 +145,7 @@ export default function Dashboard() {
       setPassword("");
     } catch (uploadError) {
       setError(uploadError instanceof Error && uploadError.message === "file_too_large"
-        ? "Each file must be 1 GB or smaller."
+        ? `Each file must be ${maxUploadLabel} or smaller.`
         : "Upload failed. Check your connection and try again.");
     } finally {
       setLoading(false);
@@ -295,7 +297,7 @@ export default function Dashboard() {
             )}
             <div className="dashboard-rule-list">
               <div><span>30 days</span><small>Signed-in links remain available.</small></div>
-              <div><span>1 GB</span><small>Maximum size for every selected file.</small></div>
+              <div><span>{maxUploadLabel}</span><small>Maximum size for every selected file.</small></div>
               <div><span>Private</span><small>Password protection is available per share.</small></div>
             </div>
           </aside>

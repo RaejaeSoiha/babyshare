@@ -172,6 +172,41 @@ test("an authenticated user cannot download another user's private file", async 
   assert.equal(response.status, 403);
 });
 
+test("an authenticated session accepts a multipart upload after login and after refresh", async () => {
+  const cookie = await login("alice", "alice-password-123");
+  const form = new FormData();
+  form.append("files", new Blob(["authenticated multer upload"], { type: "text/plain" }), "authenticated.txt");
+  form.append("label", "Authenticated upload");
+
+  const uploaded = await fetchApp("/upload", {
+    body: form,
+    headers: { Cookie: cookie, Origin: baseUrl },
+    method: "POST",
+  });
+  assert.equal(uploaded.status, 201);
+  const created = await uploaded.json();
+  assert.equal(created.ok, true);
+  assert.equal(created.links.length, 1);
+
+  const refreshed = await fetchApp("/api/me", { headers: { Cookie: cookie } });
+  assert.equal(refreshed.status, 200);
+  assert.equal((await refreshed.json()).user, "alice");
+
+  const files = await fetchApp("/api/files", { headers: { Cookie: cookie } });
+  assert.equal(files.status, 200);
+  const uploadedFile = (await files.json()).files.find((file) => file.original === "authenticated.txt");
+  assert.ok(uploadedFile, "the upload is visible in the signed-in File Vault");
+
+  const storedPath = path.join(testDataDir, "uploads", "users", "alice", uploadedFile.file);
+  assert.equal(fs.existsSync(storedPath), true);
+  assert.notEqual(fs.readFileSync(storedPath, "utf8"), "authenticated multer upload", "the local upload is encrypted at rest");
+
+  const shareUrl = new URL(created.links[0].url);
+  const downloaded = await fetchApp(`${shareUrl.pathname}?action=download`);
+  assert.equal(downloaded.status, 200);
+  assert.equal(await downloaded.text(), "authenticated multer upload");
+});
+
 test("expired user shares are rejected at request time", async () => {
   const realNow = Date.now;
   Date.now = () => realNow() + 120_000;

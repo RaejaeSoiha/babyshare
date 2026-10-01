@@ -1,6 +1,6 @@
 // Cloudflare production runtime. The Node/Express server remains the local LAN runtime.
-// This free-plan runtime never receives or stores file bytes: transfers stay
-// between approved nearby browsers over WebRTC.
+// Nearby and guest transfers stay peer-to-peer. Signed-in shares are stored as
+// encrypted D1 blobs so the Worker can provide small permanent links without R2.
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -19,6 +19,11 @@ const MAX_SIGNALS_PER_DEVICE = 24;
 const SIGNAL_TTL_MS = 60 * 1000;
 const QR_PAIR_TTL_MS = 10 * 60 * 1000;
 const MAX_QR_SIGNALS = 48;
+const USER_SHARE_DURATION_MS = 30 * DAY_MS;
+// D1 limits a BLOB (and a whole row) to 2 MB. Leave room for AES-GCM overhead
+// and metadata instead of accepting an upload that D1 must reject afterwards.
+const D1_STORED_FILE_MAX_BYTES = 1_500_000;
+const storedShareSchemaPromises = new WeakMap();
 // Workers Free allows 10 ms of CPU per request. Keep password operations below
 // that limit in the Cloudflare runtime; the separate Node/LAN server retains
 // its existing password implementation.
@@ -164,6 +169,25 @@ function fileLimit(env) {
   return Number.isSafeInteger(parsed) && parsed > 0 ? Math.min(parsed, MAX_FILE_SIZE) : 100 * 1024 * 1024;
 }
 
+function storedFileLimit(env) {
+  return Math.min(fileLimit(env), D1_STORED_FILE_MAX_BYTES);
+}
+
+function ensureStoredShareSchema(env) {
+  const existing = storedShareSchemaPromises.get(env.DB);
+  if (existing) return existing;
+  const setup = (async () => {
+    await env.DB.prepare("CREATE TABLE IF NOT EXISTS user_shares (id TEXT PRIMARY KEY, username TEXT NOT NULL, original_name TEXT NOT NULL, label TEXT NOT NULL DEFAULT '', password_hash TEXT, content_type TEXT NOT NULL, size INTEGER NOT NULL, data BLOB NOT NULL, expires_at INTEGER NOT NULL, uploaded_at INTEGER NOT NULL, FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE)").run();
+    await env.DB.prepare("CREATE INDEX IF NOT EXISTS user_shares_owner_expiry_idx ON user_shares(username, expires_at)").run();
+    await env.DB.prepare("CREATE INDEX IF NOT EXISTS user_shares_expiry_idx ON user_shares(expires_at)").run();
+  })();
+  storedShareSchemaPromises.set(env.DB, setup);
+  return setup.catch((error) => {
+    storedShareSchemaPromises.delete(env.DB);
+    throw error;
+  });
+}
+
 function formValue(form, name) {
   const value = form.get(name);
   return typeof value === "string" ? value : "";
@@ -200,6 +224,34 @@ async function passwordMatches(password, encoded) {
   } catch {
     return false;
   }
+}
+
+async function storedFileKey(env) {
+  // The Worker already requires SESSION_SECRET. Deriving a separate AES key
+  // with a fixed domain separator avoids using the raw session-signing value
+  // directly for encrypted file contents.
+  const material = textEncoder.encode(`BabyShare D1 stored file v1:${env.SESSION_SECRET || ""}`);
+  const keyBytes = await crypto.subtle.digest("SHA-256", material);
+  return crypto.subtle.importKey("raw", keyBytes, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+}
+
+async function encryptStoredFile(env, contents) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encrypted = new Uint8Array(await crypto.subtle.encrypt({ additionalData: textEncoder.encode("BabyShare D1 file v1"), iv, name: "AES-GCM" }, await storedFileKey(env), contents));
+  const result = new Uint8Array(iv.byteLength + encrypted.byteLength);
+  result.set(iv);
+  result.set(encrypted, iv.byteLength);
+  return result.buffer;
+}
+
+async function decryptStoredFile(env, value) {
+  const encoded = value instanceof ArrayBuffer
+    ? new Uint8Array(value)
+    : new Uint8Array(value?.buffer || value || new ArrayBuffer(0));
+  if (encoded.byteLength <= 12) throw new Error("stored_file_invalid");
+  const iv = encoded.slice(0, 12);
+  const payload = encoded.slice(12);
+  return crypto.subtle.decrypt({ additionalData: textEncoder.encode("BabyShare D1 file v1"), iv, name: "AES-GCM" }, await storedFileKey(env), payload);
 }
 
 async function hmac(value, secret) {
@@ -329,20 +381,16 @@ async function handleRegister(request, env) {
   return new Response(null, { headers: { Location: "/login?created=1" }, status: 302 });
 }
 
-/*
- * The Node runtime retains the legacy stored-upload implementation. Cloudflare
- * Free mode intentionally excludes it so the Worker has no object-storage
- * dependency. The request router below returns peer_only before these legacy
- * paths can be reached.
 async function handleUserUpload(request, env, url, session) {
   if (!session) return json({ error: "unauthorized" }, { status: 401 });
+  await ensureStoredShareSchema(env);
   const form = await request.formData();
   const label = formValue(form, "label").trim();
   const password = formValue(form, "password");
   const files = form.getAll("files").filter(isWorkerFile);
   if (files.length === 0) return json({ error: "missing_file" }, { status: 400 });
   if (files.length > 20 || files.some((file) => !validFileName(file.name))) return json({ error: "invalid_file" }, { status: 400 });
-  if (files.some((file) => file.size > fileLimit(env))) return json({ error: "file_too_large" }, { status: 413 });
+  if (files.some((file) => file.size > storedFileLimit(env))) return json({ error: "file_too_large", maxBytes: storedFileLimit(env) }, { status: 413 });
   if (!validLabel(label)) return json({ error: "invalid_label" }, { status: 400 });
   if (password && !validPassword(password)) return json({ error: "invalid_password" }, { status: 400 });
 
@@ -351,65 +399,50 @@ async function handleUserUpload(request, env, url, session) {
   try {
     for (const file of files) {
       const id = crypto.randomUUID();
-      const objectKey = `users/${session.username}/${id}`;
       const now = Date.now();
-      await env.FILES.put(objectKey, file.stream(), { httpMetadata: { contentType: file.type || contentType(file.name) } });
-      await env.DB.prepare("INSERT INTO user_shares (id, username, object_key, original_name, label, password_hash, expires_at, uploaded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-        .bind(id, session.username, objectKey, file.name, label, hash, now + USER_SHARE_DURATION_MS, now).run();
+      const contents = await file.arrayBuffer();
+      const encrypted = await encryptStoredFile(env, contents);
+      await env.DB.prepare("INSERT INTO user_shares (id, username, original_name, label, password_hash, content_type, size, data, expires_at, uploaded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind(id, session.username, file.name, label, hash, contentType(file.name), file.size, encrypted, now + USER_SHARE_DURATION_MS, now).run();
       created.push({ expires: now + USER_SHARE_DURATION_MS, id, name: label || file.name, passwordRequired: Boolean(hash) });
     }
   } catch (error) {
-    await Promise.all(created.map((item) => env.FILES.delete(`users/${session.username}/${item.id}`).catch(() => {})));
     await Promise.all(created.map((item) => env.DB.prepare("DELETE FROM user_shares WHERE id = ?").bind(item.id).run()));
     throw error;
   }
 
-  const links = await Promise.all(created.map(async (item) => {
-    const link = shareUrl(url, `/secure-download/${encodeURIComponent(session.username)}/${encodeURIComponent(item.id)}`);
-    return { expires: item.expires, name: item.name, passwordRequired: item.passwordRequired, qr: await QRCode.toDataURL(link), url: link };
-  }));
+  const links = created.map((item) => {
+    const link = new URL(`/secure-download/${encodeURIComponent(session.username)}/${encodeURIComponent(item.id)}`, url).toString();
+    return { expires: item.expires, name: item.name, passwordRequired: item.passwordRequired, url: link };
+  });
   return json({ links, ok: true }, { status: 201 });
 }
 
-async function handleGuestUpload(request, env, url) {
-  const form = await request.formData();
-  const file = form.get("file");
-  const label = formValue(form, "label").trim();
-  const password = formValue(form, "password");
-  if (!isWorkerFile(file)) return json({ error: "missing_file" }, { status: 400 });
-  if (!validFileName(file.name) || !validLabel(label)) return json({ error: "invalid_request" }, { status: 400 });
-  if (file.size > fileLimit(env)) return json({ error: "file_too_large" }, { status: 413 });
-  if (password && !validPassword(password)) return json({ error: "invalid_password" }, { status: 400 });
+async function userShare(env, username, id) {
+  if (!validUsername(username) || !/^[a-f0-9-]{36}$/iu.test(id)) return null;
+  await ensureStoredShareSchema(env);
+  return env.DB.prepare("SELECT id, username, original_name, label, password_hash, content_type, size, data, expires_at, uploaded_at FROM user_shares WHERE username = ? AND id = ?")
+    .bind(username, id).first();
+}
 
-  const token = randomHex(16);
-  const objectKey = `guests/${token}/${crypto.randomUUID()}`;
-  const now = Date.now();
-  const expires = now + GUEST_SHARE_DURATION_MS;
-  const hash = password ? await passwordHash(password) : null;
-  await env.FILES.put(objectKey, file.stream(), { httpMetadata: { contentType: file.type || contentType(file.name) } });
-  try {
-    await env.DB.prepare("INSERT INTO guest_shares (token, object_key, original_name, label, password_hash, expires_at, uploaded_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .bind(token, objectKey, file.name, label, hash, expires, now).run();
-  } catch (error) {
-    await env.FILES.delete(objectKey).catch(() => {});
-    throw error;
-  }
+function expired(share) {
+  return !share || Number(share.expires_at) <= Date.now();
+}
 
-  const guestPath = `/guest-view?token=${encodeURIComponent(token)}`;
-  const previewPath = `/guest-download?token=${encodeURIComponent(token)}&action=preview`;
-  const downloadPath = `/guest-download?token=${encodeURIComponent(token)}&action=download`;
-  const link = shareUrl(url, guestPath);
-  const qrTarget = hash ? guestPath : canPreview(file.name) ? previewPath : downloadPath;
-  return json({
-    downloadPath,
-    expires,
-    label,
-    link,
-    passwordRequired: Boolean(hash),
-    previewPath,
-    qrCode: await QRCode.toDataURL(shareUrl(url, qrTarget)),
-    sharePath: guestPath,
-  }, { status: 201 });
+async function deleteUserShare(env, id) {
+  await env.DB.prepare("DELETE FROM user_shares WHERE id = ?").bind(id).run();
+}
+
+async function sendStoredFile(env, share, filename, requestAction) {
+  const contents = await decryptStoredFile(env, share.data);
+  return new Response(contents, {
+    headers: {
+      "Cache-Control": "private, no-store, max-age=0",
+      "Content-Disposition": safeDisposition(filename, requestAction === "preview" && canPreview(filename) ? "inline" : "attachment"),
+      "Content-Type": String(share.content_type || contentType(filename)),
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
 }
 
 async function handleSecureDownload(request, env, url) {
@@ -419,7 +452,7 @@ async function handleSecureDownload(request, env, url) {
   const share = await userShare(env, username, id);
   if (!share) return new Response("File not found", { status: 404 });
   if (expired(share)) {
-    await deleteShare(env, share, "user");
+    await deleteUserShare(env, String(share.id));
     return new Response("This share link has expired", { status: 410 });
   }
   const filename = String(share.original_name);
@@ -434,75 +467,71 @@ async function handleSecureDownload(request, env, url) {
   return sendStoredFile(env, share, filename, action(formValue(form, "action")));
 }
 
-async function handleGuestView(request, env, url) {
-  const token = url.searchParams.get("token") || "";
-  const share = await guestShare(env, token);
+async function handlePrivateDownload(request, env, url, session) {
+  const segments = url.pathname.split("/");
+  const username = decodeURIComponent(segments[2] || "");
+  const id = decodeURIComponent(segments[3] || "");
+  if (!session) return new Response("Sign in required", { status: 401 });
+  if (session.username !== "admin" && session.username !== username) return new Response("No access", { status: 403 });
+  const share = await userShare(env, username, id);
+  if (!share) return new Response("File not found", { status: 404 });
   if (expired(share)) {
-    if (share) await deleteShare(env, share, "guest");
-    return new Response("Invalid or expired link", { status: 404 });
+    await deleteUserShare(env, String(share.id));
+    return new Response("This share link has expired", { status: 410 });
   }
-  const filename = String(share.original_name);
-  if (share.password_hash) return html(renderPasswordPrompt({ actionUrl: "/guest-login", filename: String(share.label || filename), hiddenFields: { token }, title: "Password required" }));
-  return html(renderGuestAccess({
-    downloadUrl: `/guest-download?token=${encodeURIComponent(token)}&action=download`,
-    filename: String(share.label || filename),
-    previewUrl: `/guest-download?token=${encodeURIComponent(token)}&action=preview`,
-  }));
+  return sendStoredFile(env, share, String(share.original_name), "download");
 }
-
-async function handleGuestDownload(request, env, url) {
-  const token = url.searchParams.get("token") || "";
-  const share = await guestShare(env, token);
-  if (expired(share)) {
-    if (share) await deleteShare(env, share, "guest");
-    return new Response("Invalid or expired link", { status: 404 });
-  }
-  if (share.password_hash) return Response.redirect(new URL(`/guest-view?token=${encodeURIComponent(token)}`, url), 302);
-  return sendStoredFile(env, share, String(share.original_name), action(url.searchParams.get("action")));
-}
-
-async function handleGuestLogin(request, env, url) {
-  if (request.method === "GET") return Response.redirect(new URL(`/guest-view?token=${encodeURIComponent(url.searchParams.get("token") || "")}`, url), 302);
-  const form = await request.formData();
-  const token = formValue(form, "token");
-  const share = await guestShare(env, token);
-  if (expired(share)) {
-    if (share) await deleteShare(env, share, "guest");
-    return new Response("Invalid or expired link", { status: 404 });
-  }
-  const filename = String(share.original_name);
-  if (!share.password_hash || !(await passwordMatches(formValue(form, "password"), String(share.password_hash)))) {
-    return html(renderPasswordPrompt({ actionUrl: "/guest-login", error: "Incorrect password. Try again.", filename: String(share.label || filename), hiddenFields: { token }, title: "Password required" }), 401);
-  }
-  return sendStoredFile(env, share, filename, action(formValue(form, "action")));
-}
-*/
 
 async function handleFiles(request, env, session) {
   if (!session) return json({ error: "unauthorized" }, { status: 401 });
+  await ensureStoredShareSchema(env);
+  const visibleFiles = (await env.DB.prepare("SELECT id, username, original_name, label, password_hash, expires_at, uploaded_at FROM user_shares WHERE expires_at > ? ORDER BY uploaded_at DESC")
+    .bind(Date.now()).all()).results || [];
+  const mapFile = (share) => ({
+    expires: Number(share.expires_at),
+    file: String(share.id),
+    label: String(share.label || ""),
+    original: String(share.original_name),
+    passwordProtected: Boolean(share.password_hash),
+    uploaded: Number(share.uploaded_at),
+  });
   if (session.username === "admin") {
     const users = (await env.DB.prepare("SELECT username FROM users ORDER BY username").all()).results || [];
-    return json({ isAdmin: true, users: users.map((row) => ({ files: [], username: String(row.username) })) });
+    return json({
+      isAdmin: true,
+      users: users.map((row) => ({
+        files: visibleFiles.filter((share) => share.username === row.username).map(mapFile),
+        username: String(row.username),
+      })),
+    });
   }
-  return json({ files: [], isAdmin: false, user: session.username });
+  return json({ files: visibleFiles.filter((share) => share.username === session.username).map(mapFile), isAdmin: false, user: session.username });
 }
 
-async function handleDeleteFile(request, session, username) {
+async function handleDeleteFile(env, session, username, id) {
   if (!session) return json({ error: "unauthorized" }, { status: 401 });
   if (session.username !== "admin" && session.username !== username) return json({ error: "forbidden" }, { status: 403 });
-  return peerOnly(request);
+  const share = await userShare(env, username, id);
+  if (!share) return json({ error: "not_found" }, { status: 404 });
+  await deleteUserShare(env, id);
+  return empty();
 }
 
 async function handleAdmin(request, env, session, url) {
   if (!session) return json({ error: "unauthorized" }, { status: 401 });
   if (session.username !== "admin") return json({ error: "forbidden" }, { status: 403 });
+  await ensureStoredShareSchema(env);
   if (url.pathname === "/api/admin/overview") {
-    const users = await env.DB.prepare("SELECT COUNT(*) AS count FROM users").first();
-    return json({ guestsCount: 0, usersCount: Number(users?.count || 0) });
+    const [users, files] = await Promise.all([
+      env.DB.prepare("SELECT COUNT(*) AS count FROM users").first(),
+      env.DB.prepare("SELECT COUNT(*) AS count FROM user_shares WHERE expires_at > ?").bind(Date.now()).first(),
+    ]);
+    return json({ guestsCount: 0, storedFilesCount: Number(files?.count || 0), usersCount: Number(users?.count || 0) });
   }
   if (url.pathname === "/api/admin/users" && request.method === "GET") {
-    const rows = await env.DB.prepare("SELECT username FROM users ORDER BY username").all();
-    return json({ users: (rows.results || []).map((row) => ({ fileCount: 0, username: String(row.username) })) });
+    const rows = await env.DB.prepare("SELECT u.username, COUNT(s.id) AS file_count FROM users u LEFT JOIN user_shares s ON s.username = u.username AND s.expires_at > ? GROUP BY u.username ORDER BY u.username")
+      .bind(Date.now()).all();
+    return json({ users: (rows.results || []).map((row) => ({ fileCount: Number(row.file_count || 0), username: String(row.username) })) });
   }
   if (url.pathname === "/api/admin/users" && request.method === "POST") {
     const body = await request.json().catch(() => ({}));
@@ -529,6 +558,7 @@ async function handleAdmin(request, env, session, url) {
   if (remove && request.method === "DELETE") {
     const username = decodeURIComponent(remove[1]);
     if (username === "admin") return json({ error: "protected" }, { status: 403 });
+    await env.DB.prepare("DELETE FROM user_shares WHERE username = ?").bind(username).run();
     const result = await env.DB.prepare("DELETE FROM users WHERE username = ?").bind(username).run();
     if (!result.meta.changes) return json({ error: "not_found" }, { status: 404 });
     return empty();
@@ -613,14 +643,10 @@ export default {
           : env.ASSETS.fetch(request);
       }
       if (
-        url.pathname === "/upload"
-        || url.pathname === "/guest-view"
+        url.pathname === "/guest-view"
         || url.pathname === "/guest-download"
         || url.pathname === "/guest-login"
-        || url.pathname.startsWith("/secure-download/")
-        || url.pathname.startsWith("/download/")
         || url.pathname.startsWith("/api/guest-info/")
-        || (url.pathname.startsWith("/api/files/") && request.method === "DELETE")
       ) return peerOnly(request);
       if (url.pathname.startsWith("/api/qr/")) return proxyQrPairing(request, env, url);
       if (url.pathname.startsWith("/api/lan/")) return proxyLan(request, env, await currentSession(request, env));
@@ -637,9 +663,20 @@ export default {
       }
       if (url.pathname === "/api/me") {
         const session = await currentSession(request, env);
-        return session ? json({ isAdmin: session.username === "admin", user: session.username }) : json({ error: "unauthorized" }, { status: 401 });
+        return session
+          ? json({ isAdmin: session.username === "admin", maxUploadBytes: storedFileLimit(env), user: session.username })
+          : json({ error: "unauthorized" }, { status: 401 });
       }
+      if (url.pathname === "/upload" && request.method === "POST") return handleUserUpload(request, env, url, await requireUser(request, env));
       if (url.pathname === "/api/files" && request.method === "GET") return handleFiles(request, env, await requireUser(request, env));
+      if (url.pathname.startsWith("/api/files/") && request.method === "DELETE") {
+        const match = /^\/api\/files\/([^/]+)\/([^/]+)$/u.exec(url.pathname);
+        return match
+          ? handleDeleteFile(env, await requireUser(request, env), decodeURIComponent(match[1]), decodeURIComponent(match[2]))
+          : json({ error: "not_found" }, { status: 404 });
+      }
+      if (url.pathname.startsWith("/secure-download/")) return handleSecureDownload(request, env, url);
+      if (url.pathname.startsWith("/download/")) return handlePrivateDownload(request, env, url, await requireUser(request, env));
       if (url.pathname.startsWith("/api/admin/")) return handleAdmin(request, env, await requireUser(request, env), url);
       if (/^\/delete\/[^/]+\/[^/]+$/u.test(url.pathname)) {
         return new Response("Use the file management page to delete a file", { status: 405 });

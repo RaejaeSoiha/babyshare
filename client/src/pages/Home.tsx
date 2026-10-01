@@ -5,7 +5,7 @@ import { useLanTransfers } from "../components/LanTransfers";
 import { apiFetch, apiUrl, uploadFormData } from "../lib/api";
 import { useResponsiveViewport } from "../lib/useResponsiveViewport";
 
-type Account = { user: string; isAdmin: boolean };
+type Account = { user: string; isAdmin: boolean; maxUploadBytes?: number };
 type GuestUploadResult = {
   downloadPath?: string;
   expires: number;
@@ -163,6 +163,8 @@ export default function Home() {
   }, [devices]);
 
   const isSignedIn = Boolean(account);
+  const uploadFileLimit = isSignedIn ? account?.maxUploadBytes ?? MAX_FILE_SIZE : MAX_FILE_SIZE;
+  const uploadFileLimitLabel = formatFileSize(uploadFileLimit);
   const guestPreviewPath = guestResult ? localGuestPath(guestResult, "preview") : "";
   const guestDownloadPath = guestResult ? localGuestPath(guestResult, "download") : "";
   const hasUploadResult = Boolean(guestResult || userResult);
@@ -203,9 +205,9 @@ export default function Home() {
       setError("Guest uploads accept one file at a time. Sign in to upload multiple files.");
       return;
     }
-    if (selected.some((file) => file.size > MAX_FILE_SIZE)) {
+    if (selected.some((file) => file.size > uploadFileLimit)) {
       setFiles([]);
-      setError("Each file must be 1 GB or smaller.");
+      setError(`Each file must be ${uploadFileLimitLabel} or smaller.`);
       return;
     }
     setFiles(selected);
@@ -246,7 +248,7 @@ export default function Home() {
       if (inputRef.current) inputRef.current.value = "";
     } catch (uploadError) {
       const code = uploadError instanceof Error ? uploadError.message : "";
-      setError(code === "file_too_large" ? "Each file must be 1 GB or smaller." : "Upload failed. Please try again.");
+      setError(code === "file_too_large" ? `Each file must be ${uploadFileLimitLabel} or smaller.` : "Upload failed. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -571,7 +573,7 @@ export default function Home() {
                     {loading ? `Uploading ${progress}%` : "Upload Files"}
                   </button>
                 </div>
-                <p className="upload-hint">{isSignedIn ? "Signed in — upload up to 20 files, 1 GB each." : "Guest upload — one file up to 1 GB."}</p>
+                <p className="upload-hint">{isSignedIn ? `Signed in — upload up to 20 files, ${uploadFileLimitLabel} each.` : "Guest upload — one file up to 1 GB."}</p>
               </div>
 
               {!isSignedIn && <p className="advanced-upload">Need a label or password? <a href="/guest-upload">Use advanced guest upload</a>.</p>}
