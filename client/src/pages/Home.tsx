@@ -119,7 +119,7 @@ export default function Home() {
                 </div>
                 <p className="upload-hint">Files move directly between browsers. BabyShare does not store a copy.</p>
               </div>
-              {!signedIn && <p className="advanced-upload">Want to share without an account? <Link to="/guest-upload">Use QR pairing</Link>.</p>}
+              {!signedIn && <p className="advanced-upload">Receiving a file? <Link to="/guest-receive">Enter a pairing code</Link>.</p>}
               {error && <p className="error home-error" role="alert">{error}</p>}
             </section>
           </div>
