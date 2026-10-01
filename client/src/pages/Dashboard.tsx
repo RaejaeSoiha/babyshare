@@ -1,7 +1,7 @@
 // Authenticated direct-transfer workspace. File bytes stay in the two browsers.
 import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useLanTransfers } from "../components/LanTransfers";
 import { apiFetch } from "../lib/api";
 
@@ -17,6 +17,8 @@ function formatFileSize(bytes: number) {
 }
 
 export default function Dashboard() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
   const { devices, error: lanError, requestTransfers, transfers } = useLanTransfers();
   const [me, setMe] = useState<Me | null>(null);
@@ -33,6 +35,13 @@ export default function Dashboard() {
       setMe(await response.json() as Me);
     }).catch(() => setError("Unable to load your account. Refresh the page and try again."));
   }, []);
+
+  useEffect(() => {
+    const pendingFiles = (location.state as { pendingFiles?: unknown } | null)?.pendingFiles;
+    if (!Array.isArray(pendingFiles) || !pendingFiles.every((file) => file instanceof File)) return;
+    setFiles(pendingFiles.slice(0, 20));
+    navigate("/dashboard", { replace: true, state: null });
+  }, [location.state, navigate]);
 
   useEffect(() => {
     if (!recipientId && devices[0]) setRecipientId(devices[0].id);
