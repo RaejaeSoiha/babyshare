@@ -284,11 +284,11 @@ export default function WorkspaceChatDock() {
         <>
           <header className="workspace-chat-header" onPointerDown={startMovingDock} onPointerMove={moveDock} onPointerUp={stopMovingDock} onPointerCancel={stopMovingDock} title="Drag to move Nearby Users">
             <span className="workspace-chat-icon"><UsersIcon /></span>
-            <div className="workspace-chat-title"><p>Company LAN · Private</p><strong>Nearby Users <small>{onlineCount} online</small></strong></div>
+            <div className="workspace-chat-title"><p>BABYSHARE WORKSPACE · PRIVATE</p><strong>Online Users <small>{onlineCount} online</small></strong></div>
             <button type="button" className="workspace-chat-minimize" onPointerDown={(event) => event.stopPropagation()} onClick={() => setIsOpen(false)} aria-label="Minimize Nearby Users">−</button>
           </header>
           <div className="workspace-chat-users" aria-live="polite">
-            {sortedUsers.length === 0 ? <p>No other nearby users are online yet. Keep BabyShare open on the same Wi‑Fi or internet connection.</p> : sortedUsers.map((user) => {
+            {sortedUsers.length === 0 ? <p>No other signed-in users are online yet. Ask them to sign in and keep BabyShare open.</p> : sortedUsers.map((user) => {
               const activeChat = chats.find((item) => item.peerId === user.id && item.status === "active");
               const pendingChat = chats.find((item) => item.peerId === user.id && item.status === "pending");
               const latestMessage = activeChat?.messages.at(-1)?.text;
@@ -306,8 +306,8 @@ export default function WorkspaceChatDock() {
       )}
     </aside>
   ) : (
-    <button type="button" className="workspace-chat-launcher" onClick={() => setIsOpen(true)} aria-label={`Open Nearby Users: ${onlineCount} online`}>
-      <UsersIcon /><span><strong>Nearby Users</strong><small>{onlineCount} online</small></span>{newItemCount > 0 && <i aria-label={`${newItemCount} new chat item${newItemCount === 1 ? "" : "s"}`} />}
+    <button type="button" className="workspace-chat-launcher" onClick={() => setIsOpen(true)} aria-label={`Open Online Users: ${onlineCount} online`}>
+      <UsersIcon /><span><strong>Online Users</strong><small>{onlineCount} online</small></span>{newItemCount > 0 && <i aria-label={`${newItemCount} new chat item${newItemCount === 1 ? "" : "s"}`} />}
     </button>
   );
 }

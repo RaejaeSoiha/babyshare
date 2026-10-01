@@ -537,16 +537,19 @@ async function handleAdmin(request, env, session, url) {
   return json({ error: "not_found" }, { status: 404 });
 }
 
-async function cloudLanScope(request, env) {
+async function cloudLanScope(request, env, session) {
   if (!env.LAN_SCOPE_SECRET) return null;
-  // Edge Workers cannot inspect RFC1918 client addresses. This groups browsers
-  // behind the same public egress address without exposing that address to UI.
+  // Signed-in accounts belong to the same private BabyShare workspace, so a
+  // phone and computer can discover each other even when IPv6, mobile data,
+  // or a VPN makes Cloudflare see different public IP addresses. Anonymous
+  // guests remain isolated to their current public connection.
+  if (session?.username) return hmac("workspace:authenticated", env.LAN_SCOPE_SECRET);
   const clientAddress = request.headers.get("CF-Connecting-IP") || "unknown";
   return hmac(`lan:${clientAddress}`, env.LAN_SCOPE_SECRET);
 }
 
 async function proxyLan(request, env, session) {
-  const scope = await cloudLanScope(request, env);
+  const scope = await cloudLanScope(request, env, session);
   if (!scope) return json({ error: "lan_not_configured" }, { status: 503 });
   // Clone before adding trusted Worker-only headers. Constructing a request
   // from the original body with overridden headers can leave a streaming
