@@ -18,6 +18,8 @@ const MAX_CHAT_MESSAGE_LENGTH = 1_000;
 const MAX_SIGNAL_BYTES = 32 * 1024;
 const MAX_SIGNALS_PER_DEVICE = 24;
 const SIGNAL_TTL_MS = 60 * 1000;
+const QR_PAIR_TTL_MS = 10 * 60 * 1000;
+const MAX_QR_SIGNALS = 48;
 // Workers Free allows 10 ms of CPU per request. Keep password operations below
 // that limit in the Cloudflare runtime; the separate Node/LAN server retains
 // its existing password implementation.
@@ -552,6 +554,37 @@ async function proxyLan(request, env, session) {
   return env.LAN_HUB.get(id).fetch(forwarded);
 }
 
+async function proxyQrPairing(request, env, url) {
+  if (!env.QR_HUB) return json({ error: "qr_not_configured" }, { status: 503 });
+  if (url.pathname === "/api/qr/pairings" && request.method === "POST") {
+    const body = await request.json().catch(() => ({}));
+    if (!validTransferFile(body.file)) return json({ error: "invalid_transfer" }, { status: 400 });
+    const pairToken = randomHex(16);
+    const senderSecret = randomHex(24);
+    const expiresAt = Date.now() + QR_PAIR_TTL_MS;
+    const target = new URL(`/api/qr/pairings/${pairToken}/create`, url);
+    const created = await env.QR_HUB.get(env.QR_HUB.idFromName(pairToken)).fetch(new Request(target, {
+      body: JSON.stringify({ expiresAt, file: body.file, senderSecret }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    }));
+    const payload = await created.json().catch(() => ({}));
+    if (!created.ok) return json(payload, { status: created.status });
+    return json({
+      expiresAt,
+      pairToken,
+      senderSecret,
+      url: new URL(`/guest-receive?pair=${pairToken}`, url).toString(),
+    }, { status: 201 });
+  }
+  const match = /^\/api\/qr\/pairings\/([a-f0-9]{32})\/(claim|accept|status|signals|complete)$/iu.exec(url.pathname);
+  if (!match || !validQrPairToken(match[1])) {
+    await discardRequestBody(request);
+    return json({ error: "not_found" }, { status: 404 });
+  }
+  return env.QR_HUB.get(env.QR_HUB.idFromName(match[1])).fetch(request);
+}
+
 async function cleanupExpired(env) {
   const now = Date.now();
   await env.DB.prepare("DELETE FROM sessions WHERE expires_at <= ?").bind(now).run();
@@ -583,13 +616,14 @@ export default {
         || url.pathname.startsWith("/api/guest-info/")
         || (url.pathname.startsWith("/api/files/") && request.method === "DELETE")
       ) return peerOnly(request);
+      if (url.pathname.startsWith("/api/qr/")) return proxyQrPairing(request, env, url);
       if (url.pathname.startsWith("/api/lan/")) return proxyLan(request, env, await currentSession(request, env));
       if (["/login", "/register", "/api/me", "/api/files", "/upload", "/logout"].includes(url.pathname) || url.pathname.startsWith("/api/admin/")) {
         await ensureBootstrapAdmin(env);
       }
       if (url.pathname === "/login") return request.method === "POST" ? handleLogin(request, env) : serveSpa(request, env);
       if (url.pathname === "/register") return request.method === "POST" ? handleRegister(request, env) : serveSpa(request, env);
-      if (url.pathname === "/guest-upload") return request.method === "GET" ? serveSpa(request, env) : peerOnly(request);
+      if (["/guest-receive", "/guest-upload"].includes(url.pathname)) return request.method === "GET" ? serveSpa(request, env) : peerOnly(request);
       if (url.pathname === "/logout" && request.method === "POST") {
         const session = await currentSession(request, env);
         if (session) await env.DB.prepare("DELETE FROM sessions WHERE id = ?").bind(session.id).run();
@@ -604,11 +638,11 @@ export default {
       if (/^\/delete\/[^/]+\/[^/]+$/u.test(url.pathname)) {
         return new Response("Use the file management page to delete a file", { status: 405 });
       }
-      if (["/dashboard", "/files", "/admin", "/home", "/list", "/manage-users", "/guest-upload"].includes(url.pathname)) return serveSpa(request, env);
+      if (["/dashboard", "/files", "/admin", "/home", "/list", "/manage-users", "/guest-receive", "/guest-upload"].includes(url.pathname)) return serveSpa(request, env);
       return env.ASSETS.fetch(request);
     } catch (error) {
       console.error("Cloudflare Worker request failed", error);
-      return url.pathname.startsWith("/api/") || ["/upload", "/guest-upload"].includes(url.pathname)
+      return url.pathname.startsWith("/api/") || ["/upload", "/guest-receive", "/guest-upload"].includes(url.pathname)
         ? json({ error: "server_error" }, { status: 500 })
         : html(renderError("Service unavailable", "BabyShare could not complete that request. Please try again."), 500);
     }
@@ -645,6 +679,10 @@ function validSignal(signal) {
   } catch {
     return false;
   }
+}
+
+function validQrPairToken(value) {
+  return typeof value === "string" && /^[a-f0-9]{32}$/i.test(value);
 }
 
 export class BabyShareLanHub {
@@ -897,5 +935,138 @@ export class BabyShareLanHub {
     }
     await discardRequestBody(request);
     return json({ error: "not_found" }, { status: 404 });
+  }
+}
+
+// A pairing exists only long enough to establish a WebRTC data channel. The
+// Durable Object relays metadata and ICE/SDP messages only; file bytes are
+// never accepted by this class or by the Worker.
+export class BabyShareQrHub {
+  constructor(state, env) {
+    this.state = state;
+    this.env = env;
+  }
+
+  async currentPairing() {
+    const pairing = await this.state.storage.get("pairing");
+    if (!pairing) return null;
+    if (Number(pairing.expiresAt) > Date.now()) return pairing;
+    await this.state.storage.deleteAll();
+    return null;
+  }
+
+  async savePairing(pairing) {
+    await this.state.storage.put("pairing", pairing);
+    await this.state.storage.setAlarm(pairing.expiresAt);
+  }
+
+  publicPairing(pairing) {
+    return {
+      expiresAt: pairing.expiresAt,
+      file: { name: pairing.file.name, size: pairing.file.size },
+      status: pairing.status,
+    };
+  }
+
+  roleFor(request, pairing) {
+    const secret = request.headers.get("x-babyshare-qr-secret") || "";
+    if (!secret) return null;
+    if (constantTimeEquals(textEncoder.encode(secret), textEncoder.encode(pairing.senderSecret))) return "sender";
+    if (pairing.receiverSecret && constantTimeEquals(textEncoder.encode(secret), textEncoder.encode(pairing.receiverSecret))) return "receiver";
+    return null;
+  }
+
+  async fetch(request) {
+    const url = new URL(request.url);
+    if (url.pathname.endsWith("/create") && request.method === "POST") {
+      const body = await request.json().catch(() => ({}));
+      if (!validTransferFile(body.file) || typeof body.senderSecret !== "string" || !/^[a-f0-9]{48}$/i.test(body.senderSecret)
+        || !Number.isSafeInteger(body.expiresAt) || body.expiresAt <= Date.now() || body.expiresAt > Date.now() + QR_PAIR_TTL_MS + 10_000) {
+        return json({ error: "invalid_pairing" }, { status: 400 });
+      }
+      const existing = await this.currentPairing();
+      if (existing) return json({ error: "pairing_exists" }, { status: 409 });
+      const pairing = {
+        createdAt: Date.now(),
+        expiresAt: body.expiresAt,
+        file: { name: body.file.name, size: body.file.size },
+        receiverSecret: "",
+        senderSecret: body.senderSecret,
+        signals: { receiver: [], sender: [] },
+        status: "waiting",
+        updatedAt: Date.now(),
+      };
+      await this.savePairing(pairing);
+      return json({ pairing: this.publicPairing(pairing) }, { status: 201 });
+    }
+
+    const pairing = await this.currentPairing();
+    if (!pairing) {
+      await discardRequestBody(request);
+      return json({ error: "pairing_expired" }, { status: 410 });
+    }
+    if (url.pathname.endsWith("/claim") && request.method === "POST") {
+      await request.json().catch(() => ({}));
+      const existingSecret = request.headers.get("x-babyshare-qr-secret") || "";
+      if (pairing.receiverSecret) {
+        if (!constantTimeEquals(textEncoder.encode(existingSecret), textEncoder.encode(pairing.receiverSecret))) return json({ error: "pairing_taken" }, { status: 409 });
+        return json({ pairing: this.publicPairing(pairing), receiverSecret: pairing.receiverSecret });
+      }
+      pairing.receiverSecret = randomHex(24);
+      pairing.status = "claimed";
+      pairing.updatedAt = Date.now();
+      await this.savePairing(pairing);
+      return json({ pairing: this.publicPairing(pairing), receiverSecret: pairing.receiverSecret });
+    }
+
+    const role = this.roleFor(request, pairing);
+    if (!role) {
+      await discardRequestBody(request);
+      return json({ error: "pairing_unauthorized" }, { status: 403 });
+    }
+    if (url.pathname.endsWith("/status") && request.method === "GET") return json({ pairing: this.publicPairing(pairing) });
+    if (url.pathname.endsWith("/accept") && request.method === "POST") {
+      await request.json().catch(() => ({}));
+      if (role !== "receiver" || !["claimed", "accepted"].includes(pairing.status)) return json({ error: "pairing_unavailable" }, { status: 409 });
+      pairing.status = "accepted";
+      pairing.updatedAt = Date.now();
+      await this.savePairing(pairing);
+      return json({ pairing: this.publicPairing(pairing) });
+    }
+    if (url.pathname.endsWith("/signals")) {
+      if (request.method === "GET") {
+        const signals = pairing.signals[role] || [];
+        pairing.signals[role] = [];
+        pairing.updatedAt = Date.now();
+        await this.savePairing(pairing);
+        return json({ signals });
+      }
+      if (request.method === "POST") {
+        const signal = (await request.json().catch(() => ({}))).signal;
+        if (pairing.status !== "accepted" || !validSignal(signal)) return json({ error: "invalid_signal" }, { status: 400 });
+        const recipientRole = role === "sender" ? "receiver" : "sender";
+        const queue = pairing.signals[recipientRole] || [];
+        if (queue.length >= MAX_QR_SIGNALS) queue.splice(0, queue.length - MAX_QR_SIGNALS + 1);
+        queue.push(JSON.parse(JSON.stringify(signal)));
+        pairing.signals[recipientRole] = queue;
+        pairing.updatedAt = Date.now();
+        await this.savePairing(pairing);
+        return json({ ok: true }, { status: 202 });
+      }
+    }
+    if (url.pathname.endsWith("/complete") && request.method === "POST") {
+      await request.json().catch(() => ({}));
+      if (!["accepted", "complete"].includes(pairing.status)) return json({ error: "pairing_unavailable" }, { status: 409 });
+      pairing.status = "complete";
+      pairing.updatedAt = Date.now();
+      await this.savePairing(pairing);
+      return json({ pairing: this.publicPairing(pairing) });
+    }
+    await discardRequestBody(request);
+    return json({ error: "not_found" }, { status: 404 });
+  }
+
+  async alarm() {
+    await this.state.storage.deleteAll();
   }
 }

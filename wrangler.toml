@@ -14,6 +14,7 @@ run_worker_first = [
   "/secure-download/*",
   "/guest-download",
   "/guest-login",
+  "/guest-receive",
   "/guest-upload",
   "/guest-view",
   "/login",
@@ -38,9 +39,17 @@ migrations_dir = "cloudflare/migrations"
 name = "LAN_HUB"
 class_name = "BabyShareLanHub"
 
+[[durable_objects.bindings]]
+name = "QR_HUB"
+class_name = "BabyShareQrHub"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["BabyShareLanHub"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["BabyShareQrHub"]
 
 [vars]
 BOOTSTRAP_ADMIN_USERNAME = "admin"

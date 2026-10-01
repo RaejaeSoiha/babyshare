@@ -980,6 +980,22 @@ a {
   accent-color: #44c9f3;
 }
 
+.guest-qr-image {
+  display: block;
+  width: min(260px, 100%);
+  height: auto;
+  margin: 18px auto;
+  padding: 10px;
+  border-radius: 15px;
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.26);
+}
+
+.guest-received-file {
+  margin-top: 10px;
+  text-align: center;
+}
+
 .guest-upload-error {
   margin: 14px 0 0;
   color: #ff8d99;

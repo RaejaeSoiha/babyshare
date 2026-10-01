@@ -7,6 +7,7 @@ import Home from "./pages/Home";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import GuestUpload from "./pages/GuestUpload";
+import GuestReceive from "./pages/GuestReceive";
 import GuestLogin from "./pages/GuestLogin";
 import Dashboard from "./pages/Dashboard";
 import Files from "./pages/Files";
@@ -24,6 +25,7 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/guest-upload" element={<GuestUpload />} />
+          <Route path="/guest-receive" element={<GuestReceive />} />
           <Route path="/guest-login" element={<GuestLogin />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/files" element={<Files />} />
