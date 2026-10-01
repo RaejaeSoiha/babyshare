@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import QRCode from "qrcode";
 import {
@@ -50,13 +50,13 @@ export default function GuestUpload() {
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
 
-  const closeConnection = () => {
+  const closeConnection = useCallback(() => {
     pcRef.current?.close();
     pcRef.current = null;
     pendingCandidatesRef.current = [];
-  };
+  }, []);
 
-  const sendFile = async (channel: RTCDataChannel, transferFile: File, activeCredentials: QrCredentials) => {
+  const sendFile = useCallback(async (channel: RTCDataChannel, transferFile: File, activeCredentials: QrCredentials) => {
     channel.send(JSON.stringify({ mimeType: transferFile.type || "application/octet-stream", name: transferFile.name, size: transferFile.size, type: "metadata" }));
     const chunkSize = 64 * 1024;
     for (let offset = 0; offset < transferFile.size; offset += chunkSize) {
@@ -77,9 +77,9 @@ export default function GuestUpload() {
     await completeQrPairing(activeCredentials);
     setProgress(100);
     setTransferState("complete");
-  };
+  }, []);
 
-  const beginDirectTransfer = async () => {
+  const beginDirectTransfer = useCallback(async () => {
     if (!credentials || !file || startedRef.current || typeof RTCPeerConnection === "undefined") return;
     startedRef.current = true;
     setTransferState("connecting");
@@ -104,9 +104,9 @@ export default function GuestUpload() {
     } catch (cause) {
       setError(directTransferError(cause));
     }
-  };
+  }, [credentials, file, sendFile]);
 
-  const handleSignal = async (signal: QrSignal) => {
+  const handleSignal = useCallback(async (signal: QrSignal) => {
     const pc = pcRef.current;
     if (!pc) return;
     if (signal.type === "answer" && signal.description) {
@@ -121,7 +121,7 @@ export default function GuestUpload() {
       closeConnection();
       setError("The recipient cancelled the direct transfer.");
     }
-  };
+  }, [closeConnection]);
 
   useEffect(() => {
     if (!credentials) return undefined;
@@ -153,13 +153,15 @@ export default function GuestUpload() {
     void poll();
     const interval = window.setInterval(poll, 650);
     return () => { active = false; window.clearInterval(interval); };
-  }, [credentials, pairing?.status]);
+  }, [credentials, handleSignal, pairing?.status]);
 
   useEffect(() => {
-    if (pairing?.status === "accepted") void beginDirectTransfer();
-  }, [pairing?.status]);
+    if (pairing?.status !== "accepted") return undefined;
+    const transferTimeout = window.setTimeout(() => { void beginDirectTransfer(); }, 0);
+    return () => window.clearTimeout(transferTimeout);
+  }, [beginDirectTransfer, pairing?.status]);
 
-  useEffect(() => () => closeConnection(), []);
+  useEffect(() => () => closeConnection(), [closeConnection]);
 
   const createPair = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

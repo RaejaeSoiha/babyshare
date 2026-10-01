@@ -3,6 +3,7 @@ import type { DragEvent, FormEvent, PointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { useLanTransfers } from "../components/LanTransfers";
 import { apiFetch, apiUrl, uploadFormData } from "../lib/api";
+import { useResponsiveViewport } from "../lib/useResponsiveViewport";
 
 type Account = { user: string; isAdmin: boolean };
 type GuestUploadResult = {
@@ -108,9 +109,10 @@ export default function Home() {
   const [isNearbyPanelOpen, setIsNearbyPanelOpen] = useState(true);
   const [nearbyPanelPosition, setNearbyPanelPosition] = useState<{ left: number; top: number } | null>(null);
   const [nearbyDetailPosition, setNearbyDetailPosition] = useState<{ left: number; top: number } | null>(null);
-  const [isCompactViewport, setIsCompactViewport] = useState(() => typeof window !== "undefined" && window.innerWidth <= 680);
   const nearbyPanelDragRef = useRef<{ height: number; left: number; offsetX: number; offsetY: number; pointerId: number; top: number; width: number } | null>(null);
   const nearbyDetailDragRef = useRef<{ height: number; left: number; offsetX: number; offsetY: number; pointerId: number; top: number; width: number } | null>(null);
+  const viewport = useResponsiveViewport();
+  const isCompactViewport = viewport?.isCompact ?? false;
   const {
     acceptChat,
     chats,
@@ -144,13 +146,6 @@ export default function Home() {
     document.addEventListener("keydown", closeOnEscape);
     return () => document.removeEventListener("keydown", closeOnEscape);
   }, [isNearbyDetailOpen]);
-
-  useEffect(() => {
-    const updateViewport = () => setIsCompactViewport(window.innerWidth <= 680);
-    updateViewport();
-    window.addEventListener("resize", updateViewport);
-    return () => window.removeEventListener("resize", updateViewport);
-  }, []);
 
   useEffect(() => {
     const openRequestedChat = (event: Event) => {
@@ -480,12 +475,21 @@ export default function Home() {
     setIsNearbyPanelOpen(false);
   };
 
-  const nearbyPanelStyle = nearbyPanelPosition && !isCompactViewport
+  const mobilePanelStyle = isCompactViewport && viewport
+    ? {
+      bottom: `calc(env(safe-area-inset-bottom) + ${viewport.bottom}px)`,
+      left: viewport.left,
+      maxHeight: viewport.height,
+      right: "auto",
+      width: viewport.width,
+    }
+    : undefined;
+  const nearbyPanelStyle = mobilePanelStyle ?? (nearbyPanelPosition
     ? { bottom: "auto", left: nearbyPanelPosition.left, right: "auto", top: nearbyPanelPosition.top, transform: "none" }
-    : undefined;
-  const nearbyDetailStyle = nearbyDetailPosition && !isCompactViewport
+    : undefined);
+  const nearbyDetailStyle = mobilePanelStyle ?? (nearbyDetailPosition
     ? { bottom: "auto", left: nearbyDetailPosition.left, right: "auto", top: nearbyDetailPosition.top, transform: "none" }
-    : undefined;
+    : undefined);
 
   return (
     <div className="home-page">

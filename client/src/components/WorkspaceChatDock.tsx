@@ -3,6 +3,7 @@ import type { FormEvent, PointerEvent } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useLanTransfers } from "./LanTransfers";
 import { apiFetch } from "../lib/api";
+import { useResponsiveViewport } from "../lib/useResponsiveViewport";
 
 const MAX_FILE_SIZE = 1024 * 1024 * 1024;
 
@@ -35,16 +36,16 @@ export default function WorkspaceChatDock() {
   const messagesRef = useRef<HTMLDivElement>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const [isSignedIn, setIsSignedIn] = useState<boolean | null>(null);
-  const [isOpen, setIsOpen] = useState(false);
+  const [openPath, setOpenPath] = useState<string | null>(null);
   const [selectedPeerId, setSelectedPeerId] = useState("");
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<File[]>([]);
   const [sendingAttachments, setSendingAttachments] = useState(false);
   const [error, setError] = useState("");
   const [dockPosition, setDockPosition] = useState<{ left: number; top: number } | null>(null);
-  const [isCompactViewport, setIsCompactViewport] = useState(() => typeof window !== "undefined" && window.innerWidth <= 680);
-  const [mobileDock, setMobileDock] = useState<{ bottom: number; height: number; left: number; width: number } | null>(null);
   const dockDragRef = useRef<{ height: number; left: number; offsetX: number; offsetY: number; pointerId: number; top: number; width: number } | null>(null);
+  const viewport = useResponsiveViewport();
+  const isCompactViewport = viewport?.isCompact ?? false;
   const {
     chats,
     devices,
@@ -57,6 +58,7 @@ export default function WorkspaceChatDock() {
   } = useLanTransfers();
 
   const isWorkspaceRoute = pathname === "/dashboard" || pathname === "/files" || pathname === "/admin";
+  const isOpen = openPath === pathname;
 
   useEffect(() => {
     let active = true;
@@ -67,48 +69,6 @@ export default function WorkspaceChatDock() {
   }, []);
 
   useEffect(() => {
-    const updateViewport = () => {
-      const visualViewport = window.visualViewport;
-      const viewportWidth = visualViewport?.width ?? window.innerWidth;
-      setIsCompactViewport(viewportWidth <= 680);
-      if (!visualViewport) {
-        setMobileDock(null);
-        return;
-      }
-
-      // On iPhone, a fixed element is positioned against the layout viewport
-      // while the keyboard only shrinks the visual viewport. Measure both so
-      // the dock stays above the keyboard and within the visible width.
-      const layoutHeight = Math.max(window.innerHeight, document.documentElement.clientHeight);
-      const hiddenBelowViewport = Math.max(0, layoutHeight - visualViewport.height - visualViewport.offsetTop);
-      setMobileDock({
-        bottom: Math.round(hiddenBelowViewport + 12),
-        height: Math.round(Math.min(520, Math.max(160, visualViewport.height - 24))),
-        left: Math.round(visualViewport.offsetLeft + 12),
-        width: Math.round(Math.max(0, visualViewport.width - 24)),
-      });
-    };
-    updateViewport();
-    window.addEventListener("resize", updateViewport);
-    window.visualViewport?.addEventListener("resize", updateViewport);
-    window.visualViewport?.addEventListener("scroll", updateViewport);
-    return () => {
-      window.removeEventListener("resize", updateViewport);
-      window.visualViewport?.removeEventListener("resize", updateViewport);
-      window.visualViewport?.removeEventListener("scroll", updateViewport);
-    };
-  }, []);
-
-  // Start each workspace page with the dock minimized. A user can still open
-  // it manually or from an explicit "open chat" action.
-  useEffect(() => {
-    if (!isWorkspaceRoute) return;
-    setIsOpen(false);
-    setSelectedPeerId("");
-    setDockPosition(null);
-  }, [pathname, isWorkspaceRoute]);
-
-  useEffect(() => {
     if (!isWorkspaceRoute) return;
     const openRequestedChat = (event: Event) => {
       const peerId = (event as CustomEvent<{ peerId?: string }>).detail?.peerId;
@@ -116,12 +76,12 @@ export default function WorkspaceChatDock() {
       setAttachments([]);
       if (attachmentInputRef.current) attachmentInputRef.current.value = "";
       setSelectedPeerId(peerId);
-      setIsOpen(true);
+      setOpenPath(pathname);
       setError("");
     };
     window.addEventListener("babyshare:open-chat", openRequestedChat);
     return () => window.removeEventListener("babyshare:open-chat", openRequestedChat);
-  }, [isWorkspaceRoute]);
+  }, [isWorkspaceRoute, pathname]);
 
   const sortedUsers = useMemo(() => [...devices].sort((left, right) => {
     const leftChat = chats.find((chat) => chat.peerId === left.id && chat.status === "active");
@@ -154,7 +114,7 @@ export default function WorkspaceChatDock() {
 
   const openUser = async (peerId: string) => {
     setSelectedPeerId(peerId);
-    setIsOpen(true);
+    setOpenPath(pathname);
     setError("");
     setAttachments([]);
     if (attachmentInputRef.current) attachmentInputRef.current.value = "";
@@ -263,13 +223,13 @@ export default function WorkspaceChatDock() {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
-  const dockStyle = isCompactViewport && mobileDock
+  const dockStyle = isCompactViewport && viewport
     ? {
-      bottom: `calc(env(safe-area-inset-bottom) + ${mobileDock.bottom}px)`,
-      left: mobileDock.left,
-      maxHeight: mobileDock.height,
+      bottom: `calc(env(safe-area-inset-bottom) + ${viewport.bottom}px)`,
+      left: viewport.left,
+      maxHeight: viewport.height,
       right: "auto",
-      width: mobileDock.width,
+      width: viewport.width,
     }
     : dockPosition
       ? { bottom: "auto", left: dockPosition.left, right: "auto", top: dockPosition.top, transform: "none" }
@@ -282,7 +242,7 @@ export default function WorkspaceChatDock() {
           <header className="workspace-chat-header" onPointerDown={startMovingDock} onPointerMove={moveDock} onPointerUp={stopMovingDock} onPointerCancel={stopMovingDock} title="Drag to move chat">
             <button type="button" className="workspace-chat-back" onPointerDown={(event) => event.stopPropagation()} onClick={() => setSelectedPeerId("")} aria-label="Back to Nearby Users"><BackIcon /></button>
             <div className="workspace-chat-title"><p>Nearby User</p><strong>{selectedName}</strong></div>
-            <button type="button" className="workspace-chat-minimize" onPointerDown={(event) => event.stopPropagation()} onClick={() => setIsOpen(false)} aria-label="Minimize chat">−</button>
+            <button type="button" className="workspace-chat-minimize" onPointerDown={(event) => event.stopPropagation()} onClick={() => setOpenPath(null)} aria-label="Minimize chat">−</button>
           </header>
           <div className="workspace-chat-thread">
             {selectedChat?.status === "active" ? (
@@ -316,7 +276,7 @@ export default function WorkspaceChatDock() {
           <header className="workspace-chat-header" onPointerDown={startMovingDock} onPointerMove={moveDock} onPointerUp={stopMovingDock} onPointerCancel={stopMovingDock} title="Drag to move Nearby Users">
             <span className="workspace-chat-icon"><UsersIcon /></span>
             <div className="workspace-chat-title"><p>BABYSHARE WORKSPACE · PRIVATE</p><strong>Online Users <small>{onlineLabel}</small></strong></div>
-            <button type="button" className="workspace-chat-minimize" onPointerDown={(event) => event.stopPropagation()} onClick={() => setIsOpen(false)} aria-label="Minimize Nearby Users">−</button>
+            <button type="button" className="workspace-chat-minimize" onPointerDown={(event) => event.stopPropagation()} onClick={() => setOpenPath(null)} aria-label="Minimize Nearby Users">−</button>
           </header>
           <div className="workspace-chat-users" aria-live="polite">
             {sortedUsers.length === 0 ? <p>No other signed-in users are online yet. Ask them to sign in and keep BabyShare open.</p> : sortedUsers.map((user) => {
@@ -335,7 +295,7 @@ export default function WorkspaceChatDock() {
       )}
     </aside>
   ) : (
-    <button type="button" className="workspace-chat-launcher" onClick={() => setIsOpen(true)} aria-label={`Open Online Users: ${onlineLabel}`}>
+    <button type="button" className="workspace-chat-launcher" onClick={() => { setSelectedPeerId(""); setOpenPath(pathname); }} aria-label={`Open Online Users: ${onlineLabel}`}>
       <UsersIcon /><span><strong>Online Users</strong><small>{onlineLabel}</small></span>{newItemCount > 0 && <i aria-label={`${newItemCount} new chat item${newItemCount === 1 ? "" : "s"}`} />}
     </button>
   );

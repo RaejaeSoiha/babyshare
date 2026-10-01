@@ -5287,3 +5287,368 @@ a {
     flex-direction: column;
   }
 }
+
+/* Shared responsive guard rails. These protect every route from wide content
+   and give fixed overlays the same safe boundaries as the main pages. */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
+body,
+#root {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
+img,
+picture,
+video,
+iframe {
+  max-width: 100%;
+}
+
+img,
+video {
+  height: auto;
+}
+
+button,
+input,
+select,
+textarea {
+  max-width: 100%;
+}
+
+input,
+select,
+textarea,
+.dashboard-card,
+.auth-card,
+.login-card,
+.guest-upload-card,
+.guest-success-card,
+.upload-share-card,
+.upload-success-card,
+.vault-group,
+.admin-reset-modal,
+.workspace-chat-dock,
+.nearby-users-panel,
+.nearby-detail-dialog,
+.lan-notification {
+  min-width: 0;
+}
+
+pre,
+code,
+.link,
+.share-link,
+.guest-selected-file strong,
+.vault-original,
+.dashboard-file small,
+.admin-user-details small {
+  overflow-wrap: anywhere;
+}
+
+.guest-upload-page,
+.login-page {
+  overflow-x: clip;
+  overflow-y: visible;
+}
+
+.admin-modal-backdrop {
+  max-height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.admin-reset-modal {
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+}
+
+.workspace-chat-dock,
+.nearby-users-panel,
+.nearby-detail-dialog,
+.lan-notifications {
+  box-sizing: border-box;
+  overscroll-behavior: contain;
+}
+
+@media (max-width: 900px) {
+  .dashboard-workspace-grid,
+  .admin-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-welcome,
+  .vault-hero,
+  .admin-hero,
+  .vault-toolbar {
+    flex-wrap: wrap;
+    min-height: 0;
+  }
+
+  .vault-search {
+    flex: 1 1 300px;
+  }
+
+  .vault-toolbar-actions {
+    flex: 1 1 auto;
+  }
+}
+
+@media (max-width: 680px) {
+  /* A 16px control font prevents iOS from zooming the whole page on focus. */
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+
+  .page {
+    width: 100%;
+    min-height: 100dvh;
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .page.dashboard,
+  .page.vault-page,
+  .page.admin-page {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .dashboard-shell,
+  .vault-shell,
+  .admin-shell,
+  .site-header,
+  .home-main,
+  .site-footer,
+  .login-header,
+  .login-shell,
+  .guest-upload-header,
+  .guest-upload-shell {
+    min-width: 0;
+  }
+
+  .dashboard-topbar {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-actions {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+  }
+
+  .dashboard-actions > * {
+    width: 100%;
+    min-width: 0;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .panel-head,
+  .vault-group-header,
+  .admin-users-header,
+  .login-register-prompt,
+  .guest-upload-form label > span {
+    flex-wrap: wrap;
+  }
+
+  .panel-head .pill {
+    max-width: 100%;
+    white-space: normal;
+    text-align: center;
+  }
+
+  .dashboard-card,
+  .vault-group,
+  .admin-users-card,
+  .admin-create-card {
+    padding: 18px;
+  }
+
+  .share-row,
+  .share-file-summary {
+    align-items: flex-start;
+  }
+
+  .dashboard-share-actions,
+  .vault-file-actions,
+  .admin-user-actions {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
+  }
+
+  .dashboard-share-actions > *,
+  .vault-file-actions > *,
+  .admin-user-actions > * {
+    width: 100%;
+    min-width: 0;
+    text-align: center;
+  }
+
+  .vault-file-title-row > strong,
+  .admin-user-name strong,
+  .share-file-summary strong {
+    max-width: 100%;
+  }
+
+  .admin-modal-backdrop {
+    align-items: flex-start;
+    padding: 16px 12px;
+  }
+
+  .admin-reset-modal {
+    width: min(440px, 100%);
+    margin: auto 0;
+  }
+
+  .auth-card {
+    padding: 24px 20px;
+  }
+
+  .auth-card .cta-row,
+  .auth-card .file-actions {
+    flex-direction: column;
+  }
+
+  .auth-card .btn {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .success-secondary-actions,
+  .guest-success-actions {
+    flex-wrap: wrap;
+  }
+
+  .success-secondary-actions > *,
+  .guest-success-actions > * {
+    min-width: 0;
+  }
+
+  .guest-upload-form input[type="file"] {
+    overflow: hidden;
+  }
+
+  .nearby-users-panel,
+  .nearby-detail-dialog {
+    right: auto;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    left: 12px;
+    width: calc(100% - 24px);
+    max-height: calc(100dvh - 24px);
+    border: 1px solid rgba(102, 205, 252, 0.38);
+    border-radius: 16px;
+  }
+
+  .nearby-detail-header {
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .nearby-detail-actions {
+    margin-left: auto;
+  }
+
+  .private-chat-compose,
+  .chat-file-tray {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .chat-file-tray {
+    flex-wrap: wrap;
+  }
+
+  .chat-file-tray > div {
+    flex-basis: 100%;
+  }
+
+  .lan-notifications {
+    right: 12px;
+    left: 12px;
+    width: auto;
+    max-height: calc(100dvh - 24px);
+    overflow-y: auto;
+  }
+}
+
+@media (max-width: 420px) {
+  .page.dashboard,
+  .page.vault-page,
+  .page.admin-page {
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .dashboard-card,
+  .vault-group,
+  .admin-users-card,
+  .admin-create-card,
+  .upload-success-card {
+    padding: 16px;
+  }
+
+  .home-main {
+    width: min(calc(100% - 24px), 1040px);
+  }
+
+  .home-hero h1 {
+    font-size: clamp(2.55rem, 14vw, 3.5rem);
+  }
+
+  .feature-indicators article {
+    padding-right: 2px;
+    padding-left: 2px;
+  }
+
+  .feature-indicators h2 {
+    font-size: 0.61rem;
+  }
+
+  .nearby-detail-header,
+  .nearby-detail-body {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .workspace-chat-header {
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .workspace-chat-header p {
+    font-size: 0.56rem;
+  }
+}
+
+@media (max-height: 600px) and (orientation: landscape) {
+  .page {
+    align-items: flex-start;
+    min-height: 100dvh;
+  }
+
+  .login-shell,
+  .guest-upload-shell {
+    min-height: 0;
+    padding-top: 20px;
+    padding-bottom: 24px;
+  }
+
+  .nearby-users-panel,
+  .nearby-detail-dialog,
+  .workspace-chat-dock {
+    max-height: calc(100dvh - 24px);
+  }
+}

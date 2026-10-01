@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   acceptQrPairing,
@@ -41,6 +41,7 @@ function pairingError(error: unknown) {
 export default function GuestReceive() {
   const [searchParams] = useSearchParams();
   const pairToken = (searchParams.get("pair") || "").toLowerCase();
+  const hasValidPairToken = /^[a-f0-9]{32}$/u.test(pairToken);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const chunksRef = useRef<ArrayBuffer[]>([]);
@@ -54,18 +55,16 @@ export default function GuestReceive() {
   const [progress, setProgress] = useState(0);
   const [received, setReceived] = useState<ReceivedFile | null>(null);
   const [error, setError] = useState("");
+  const displayedError = hasValidPairToken ? error : "This QR code is invalid. Ask the sender to create a new one.";
 
-  const closeConnection = () => {
+  const closeConnection = useCallback(() => {
     pcRef.current?.close();
     pcRef.current = null;
     pendingCandidatesRef.current = [];
-  };
+  }, []);
 
   useEffect(() => {
-    if (!/^[a-f0-9]{32}$/u.test(pairToken)) {
-      setError("This QR code is invalid. Ask the sender to create a new one.");
-      return undefined;
-    }
+    if (!hasValidPairToken) return undefined;
     const key = `babyshare.qr.receiver.${pairToken}`;
     const storedSecret = window.sessionStorage.getItem(key) || undefined;
     if (!claimPromiseRef.current) claimPromiseRef.current = claimQrPairing(pairToken, storedSecret);
@@ -77,7 +76,7 @@ export default function GuestReceive() {
       setPairing(claimed.pairing);
     }).catch((cause) => { if (active) setError(pairingError(cause)); });
     return () => { active = false; };
-  }, [pairToken]);
+  }, [hasValidPairToken, pairToken]);
 
   useEffect(() => {
     if (!credentials || received) return undefined;
@@ -95,7 +94,7 @@ export default function GuestReceive() {
     return () => { active = false; window.clearInterval(interval); };
   }, [credentials, received]);
 
-  const handleDataChannel = (channel: RTCDataChannel, activeCredentials: QrCredentials) => {
+  const handleDataChannel = useCallback((channel: RTCDataChannel, activeCredentials: QrCredentials) => {
     channel.binaryType = "arraybuffer";
     channel.onmessage = (event) => {
       if (typeof event.data === "string") {
@@ -123,9 +122,9 @@ export default function GuestReceive() {
       receivedBytesRef.current += chunk.byteLength;
       setProgress(Math.min(99, Math.round((receivedBytesRef.current / pairing.file.size) * 100)));
     };
-  };
+  }, [pairing]);
 
-  const receiveOffer = async (signal: QrSignal, activeCredentials: QrCredentials) => {
+  const receiveOffer = useCallback(async (signal: QrSignal, activeCredentials: QrCredentials) => {
     if (!signal.description || pcRef.current) return;
     const pc = new RTCPeerConnection(QR_PEER_CONFIG);
     pcRef.current = pc;
@@ -142,9 +141,9 @@ export default function GuestReceive() {
     await Promise.all(queued.map((candidate) => pc.addIceCandidate(candidate)));
     await pc.setLocalDescription(await pc.createAnswer());
     await sendQrSignal(activeCredentials, { description: pc.localDescription?.toJSON(), sessionId: signal.sessionId, type: "answer" });
-  };
+  }, [handleDataChannel, received]);
 
-  const handleSignal = async (signal: QrSignal, activeCredentials: QrCredentials) => {
+  const handleSignal = useCallback(async (signal: QrSignal, activeCredentials: QrCredentials) => {
     if (signal.type === "offer") {
       await receiveOffer(signal, activeCredentials);
     } else if (signal.type === "candidate" && signal.candidate) {
@@ -155,7 +154,7 @@ export default function GuestReceive() {
       closeConnection();
       setError("The sender cancelled the direct transfer.");
     }
-  };
+  }, [closeConnection, receiveOffer]);
 
   useEffect(() => {
     if (!credentials || pairing?.status !== "accepted" || received) return undefined;
@@ -171,12 +170,12 @@ export default function GuestReceive() {
     void poll();
     const interval = window.setInterval(poll, 650);
     return () => { active = false; window.clearInterval(interval); };
-  }, [credentials, pairing?.status, received]);
+  }, [credentials, handleSignal, pairing?.status, received]);
 
   useEffect(() => () => {
     closeConnection();
     if (received) URL.revokeObjectURL(received.url);
-  }, [received]);
+  }, [closeConnection, received]);
 
   const accept = async () => {
     if (!credentials) return;
@@ -210,7 +209,7 @@ export default function GuestReceive() {
           <p className="guest-upload-kicker">DIRECT FILE TRANSFER</p>
           <h1 id="guest-receive-title">{received ? "Your file is ready." : "A file is waiting for you."}</h1>
           {pairing && !received && <p className="guest-upload-copy"><strong>{pairing.file.name}</strong><br />{formatFileSize(pairing.file.size)} · The sender keeps the file on their device until you approve.</p>}
-          {!pairing && !error && <p className="guest-upload-copy">Opening the secure direct transfer…</p>}
+          {!pairing && !displayedError && <p className="guest-upload-copy">Opening the secure direct transfer…</p>}
 
           {pairing && !received && pairing.status !== "accepted" && (
             <button type="button" className="guest-upload-submit" disabled={accepting} onClick={() => void accept()}>{accepting ? "Connecting…" : "Review and accept file"}</button>
@@ -229,7 +228,7 @@ export default function GuestReceive() {
               <a href={received.url} download={received.name}>Download file</a>
             </div>
           </div>}
-          {error && <p className="guest-upload-error" role="alert">{error}</p>}
+          {displayedError && <p className="guest-upload-error" role="alert">{displayedError}</p>}
           <div className="guest-upload-notes"><span><ShieldIcon />No file is stored on BabyShare</span><span>QR codes expire after 10 minutes</span></div>
         </section>
       </main>
