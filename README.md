@@ -94,8 +94,11 @@ application-level AES encrypted files and optional local file links.
    `SESSION_SECRET` signs the secure session cookie. `LAN_SCOPE_SECRET` turns
    a Cloudflare-observed network address into an opaque nearby-user scope. The
    bootstrap password creates the `BOOTSTRAP_ADMIN_USERNAME` (default `admin`)
-   on the first Worker request. Sign in once, then remove the bootstrap secret
-   so it cannot be used again: `npx wrangler secret delete BOOTSTRAP_ADMIN_PASSWORD`.
+   on the first Worker request. While the secret remains configured, signing in
+   with those exact bootstrap credentials also recovers that administrator
+   account if its stored password was changed or lost. Sign in successfully,
+   then remove the bootstrap secret so it cannot be used again:
+   `npx wrangler secret delete BOOTSTRAP_ADMIN_PASSWORD`.
 The Durable Object and static-asset binding are declared in `wrangler.toml` and
 are provisioned by the first `wrangler deploy`; they do not need separate manual
 creation. No R2 subscription or payment method is required. Keep the Worker on

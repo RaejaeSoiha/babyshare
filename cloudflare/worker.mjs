@@ -242,6 +242,26 @@ async function ensureBootstrapAdmin(env) {
   }
 }
 
+function bootstrapCredentialsMatch(env, username, password) {
+  const bootstrapUsername = normalizedUsername(env.BOOTSTRAP_ADMIN_USERNAME || "");
+  const bootstrapPassword = env.BOOTSTRAP_ADMIN_PASSWORD || "";
+  return validUsername(bootstrapUsername)
+    && validPassword(bootstrapPassword)
+    && username === bootstrapUsername
+    && constantTimeEquals(textEncoder.encode(password), textEncoder.encode(bootstrapPassword));
+}
+
+async function recoverBootstrapAdmin(env, username, password) {
+  if (!bootstrapCredentialsMatch(env, username, password)) return false;
+  const now = Date.now();
+  const passwordHashValue = await passwordHash(password);
+  await env.DB.prepare(
+    "INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?) ON CONFLICT(username) DO UPDATE SET password_hash = excluded.password_hash",
+  ).bind(username, passwordHashValue, now).run();
+  await env.DB.prepare("DELETE FROM sessions WHERE username = ?").bind(username).run();
+  return true;
+}
+
 function sameOrigin(request, url) {
   const origin = request.headers.get("Origin");
   return !origin || origin === url.origin;
@@ -274,8 +294,12 @@ async function handleLogin(request, env) {
   const username = normalizedUsername(formValue(form, "username"));
   const password = formValue(form, "password");
   const user = await env.DB.prepare("SELECT password_hash FROM users WHERE username = ?").bind(username).first();
-  if (!user || !(await passwordMatches(password, String(user.password_hash)))) {
+  const passwordIsValid = user && await passwordMatches(password, String(user.password_hash));
+  if (!passwordIsValid && !(await recoverBootstrapAdmin(env, username, password))) {
     return html(renderError("Unable to sign in", "Check your username and password, then try again."), 401);
+  }
+  if (!env.SESSION_SECRET) {
+    return html(renderError("Sign-in is not configured", "The workspace is missing its encrypted session secret. Add SESSION_SECRET in Worker settings, then try again."), 503);
   }
   const session = await createSession(env, username);
   return new Response(null, { headers: { Location: "/dashboard", "Set-Cookie": session.cookie }, status: 302 });
