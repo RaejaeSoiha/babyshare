@@ -7,7 +7,6 @@ const textDecoder = new TextDecoder();
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000;
 const DEVICE_TTL_MS = 45_000;
-const CHAT_PENDING_TTL_MS = 10 * 60 * 1000;
 const PENDING_TTL_MS = 10 * 60 * 1000;
 const ACCEPTED_TTL_MS = 20 * 60 * 1000;
 const READY_TTL_MS = DAY_MS;
@@ -736,7 +735,9 @@ export class BabyShareLanHub {
     const now = Date.now();
     for (const [id, device] of this.devices) if (device.updatedAt + DEVICE_TTL_MS < now) this.devices.delete(id);
     for (const [id, chat] of this.chats) {
-      if (chat.status === "pending" && chat.updatedAt + CHAT_PENDING_TTL_MS < now) this.chats.delete(id);
+      // Convert chats that survived from a prior Worker version. Chat messages
+      // now connect immediately; only file transfers require approval.
+      if (chat.status === "pending") { chat.status = "active"; chat.updatedAt = now; }
       if (chat.status === "active") {
         const sender = this.devices.get(chat.senderId);
         const recipient = this.devices.get(chat.recipientId);
@@ -844,7 +845,9 @@ export class BabyShareLanHub {
       const existing = [...this.chats.values()].find((chat) => ["pending", "active"].includes(chat.status) && ((chat.senderId === device.id && chat.recipientId === recipient.id) || (chat.senderId === recipient.id && chat.recipientId === device.id)));
       if (existing) return json({ chat: this.clientChat(existing, device) }, { status: 201 });
       const now = Date.now();
-      const chat = { createdAt: now, id: crypto.randomUUID(), messages: [], recipientId: recipient.id, recipientName: recipient.name, senderId: device.id, senderName: device.name, status: "pending", updatedAt: now };
+      // Conversations connect immediately. Recipient approval continues to be
+      // required for file transfers, but not for chat messages.
+      const chat = { createdAt: now, id: crypto.randomUUID(), messages: [], recipientId: recipient.id, recipientName: recipient.name, senderId: device.id, senderName: device.name, status: "active", updatedAt: now };
       this.chats.set(chat.id, chat);
       return json({ chat: this.clientChat(chat, device) }, { status: 201 });
     }
@@ -857,8 +860,9 @@ export class BabyShareLanHub {
       }
       if (chatAction[2] === "accept" && request.method === "POST") {
         await request.json().catch(() => ({}));
-        if (chat.recipientId !== device.id || chat.status !== "pending") return json({ error: "chat_unavailable" }, { status: 404 });
-        chat.status = "active"; chat.updatedAt = Date.now(); return json({ chat: this.clientChat(chat, device) });
+        if (chat.recipientId !== device.id || !["pending", "active"].includes(chat.status)) return json({ error: "chat_unavailable" }, { status: 404 });
+        if (chat.status === "pending") { chat.status = "active"; chat.updatedAt = Date.now(); }
+        return json({ chat: this.clientChat(chat, device) });
       }
       if (chatAction[2] === "messages" && request.method === "POST") {
         const body = await request.json().catch(() => ({}));

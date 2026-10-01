@@ -325,13 +325,7 @@ test("an active LAN chat remains available while both participants stay online",
   });
   assert.equal(requested.status, 201);
   const chat = (await requested.json()).chat;
-
-  const accepted = await fetchApp(`/api/lan/chats/${chat.id}/accept`, {
-    body: JSON.stringify({}),
-    headers: lanHeaders(recipient),
-    method: "POST",
-  });
-  assert.equal(accepted.status, 200);
+  assert.equal(chat.status, "active");
 
   const realNow = Date.now;
   Date.now = () => realNow() + (31 * 60 * 1000);
@@ -371,15 +365,7 @@ test("LAN chat and recipient-approved direct transfers are available immediately
   });
   assert.equal(chatRequested.status, 201);
   const chat = (await chatRequested.json()).chat;
-  assert.equal(chat.status, "pending");
-
-  const chatAccepted = await fetchApp(`/api/lan/chats/${chat.id}/accept`, {
-    body: JSON.stringify({}),
-    headers: lanHeaders(recipient),
-    method: "POST",
-  });
-  assert.equal(chatAccepted.status, 200);
-  assert.equal((await chatAccepted.json()).chat.status, "active");
+  assert.equal(chat.status, "active");
 
   const messageSent = await fetchApp(`/api/lan/chats/${chat.id}/messages`, {
     body: JSON.stringify({ text: "This message must disappear when chat ends." }),

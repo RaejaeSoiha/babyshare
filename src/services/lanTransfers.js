@@ -4,7 +4,6 @@ const fs = require("fs");
 const { isValidUploadName, resolveWithin } = require("../utils/security");
 
 const DEVICE_TTL_MS = 45_000;
-const CHAT_PENDING_TTL_MS = 10 * 60 * 1000;
 const PENDING_TTL_MS = 10 * 60 * 1000;
 const ACCEPTED_TTL_MS = 20 * 60 * 1000;
 const READY_TTL_MS = 24 * 60 * 60 * 1000;
@@ -137,7 +136,9 @@ class LanTransferService {
       recipientName: recipient.name,
       senderId: sender.id,
       senderName: sender.name,
-      status: "pending",
+      // Chat is available immediately. File transfers retain their separate
+      // recipient-approval step, but text conversations do not need one.
+      status: "active",
       updatedAt: now,
     };
     this.chats.set(chat.id, chat);
@@ -159,9 +160,11 @@ class LanTransferService {
 
   acceptChat(id, recipient) {
     const chat = this.getChatForDevice(id, recipient);
-    if (!chat || chat.recipientId !== recipient.id || chat.status !== "pending") return null;
-    chat.status = "active";
-    chat.updatedAt = Date.now();
+    if (!chat || chat.recipientId !== recipient.id || !["pending", "active"].includes(chat.status)) return null;
+    if (chat.status === "pending") {
+      chat.status = "active";
+      chat.updatedAt = Date.now();
+    }
     return this.toClientChat(chat, recipient);
   }
 
@@ -445,9 +448,11 @@ class LanTransferService {
       if (device.updatedAt + DEVICE_TTL_MS < now) this.devices.delete(id);
     }
     for (const [id, chat] of this.chats) {
-      if (chat.status === "pending" && chat.updatedAt + CHAT_PENDING_TTL_MS < now) {
-        this.chats.delete(id);
-        continue;
+      // Promote conversations created before immediate chat was introduced.
+      // This keeps an older in-memory hub from showing an approval prompt.
+      if (chat.status === "pending") {
+        chat.status = "active";
+        chat.updatedAt = now;
       }
       if (chat.status === "active") {
         const sender = this.devices.get(chat.senderId);
