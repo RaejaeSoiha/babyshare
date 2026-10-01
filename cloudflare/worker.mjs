@@ -189,7 +189,11 @@ async function passwordMatches(password, encoded) {
   if (typeof encoded !== "string") return false;
   const [algorithm, iterationsValue, saltValue, digestValue] = encoded.split("$");
   const iterations = Number.parseInt(iterationsValue || "", 10);
-  if (algorithm !== "pbkdf2-sha256" || !Number.isSafeInteger(iterations) || iterations < 100_000 || !saltValue || !digestValue) return false;
+  // New Worker accounts use the Free-plan-safe iteration count above. Accept
+  // only that format here too: the previous 100k minimum rejected every
+  // account created by this Worker, while accepting an arbitrary larger value
+  // risks exceeding the Worker CPU limit during sign-in.
+  if (algorithm !== "pbkdf2-sha256" || iterations !== PASSWORD_ITERATIONS || !saltValue || !digestValue) return false;
   try {
     const material = await crypto.subtle.importKey("raw", textEncoder.encode(password), "PBKDF2", false, ["deriveBits"]);
     const bits = await crypto.subtle.deriveBits({ hash: "SHA-256", iterations, name: "PBKDF2", salt: base64UrlBytes(saltValue) }, material, 256);
