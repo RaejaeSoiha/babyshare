@@ -41,8 +41,23 @@ function credentialsHeaders(credentials: QrCredentials) {
   };
 }
 
+const configuredIceUrls = (import.meta.env.VITE_WEBRTC_ICE_SERVERS || "")
+  .split(",")
+  .map((value: string) => value.trim())
+  .filter(Boolean);
+const configuredTurnUrls = (import.meta.env.VITE_WEBRTC_TURN_URLS || "")
+  .split(",")
+  .map((value: string) => value.trim())
+  .filter(Boolean);
+
+// A public STUN server handles normal peer discovery. Deployments that need
+// restrictive-network support can provide a TURN service at build time; its
+// credentials stay out of the UI and file-transfer protocol.
 export const QR_PEER_CONFIG: RTCConfiguration = {
-  iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }],
+  iceServers: [
+    { urls: configuredIceUrls.length ? configuredIceUrls : ["stun:stun.cloudflare.com:3478"] },
+    ...(configuredTurnUrls.length ? [{ credential: import.meta.env.VITE_WEBRTC_TURN_CREDENTIAL || undefined, urls: configuredTurnUrls, username: import.meta.env.VITE_WEBRTC_TURN_USERNAME || undefined }] : []),
+  ],
 };
 
 export async function createQrPairing(file: File) {
@@ -51,7 +66,12 @@ export async function createQrPairing(file: File) {
     headers: jsonHeaders,
     method: "POST",
   });
-  return responseJson<{ expiresAt: number; pairToken: string; senderSecret: string; url: string }>(response);
+  return responseJson<{ expiresAt: number; pairToken: string; senderSecret: string; shortCode: string; url: string }>(response);
+}
+
+export async function resolveQrPairingCode(code: string) {
+  const response = await apiFetch(`/api/qr/pairings/by-code/${encodeURIComponent(code)}`);
+  return responseJson<{ pairToken: string }>(response);
 }
 
 export async function claimQrPairing(pairToken: string, existingSecret?: string) {

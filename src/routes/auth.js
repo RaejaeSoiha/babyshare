@@ -10,11 +10,7 @@ module.exports = function registerAuthRoutes(app, deps) {
     FRONTEND_BASE_URL,
     HAS_DIST,
     loginLimiter,
-    renderError,
-    saveShares,
     saveUsers,
-    SHARES,
-    UPLOADS_USERS,
     USERS,
   } = deps;
 
@@ -47,10 +43,6 @@ module.exports = function registerAuthRoutes(app, deps) {
       return req.session.regenerate((error) => {
         if (error) return next(error);
         req.session.user = username;
-        const userDir = path.join(UPLOADS_USERS, username);
-        require("fs").mkdirSync(userDir, { recursive: true });
-        if (!Array.isArray(SHARES.users[username])) SHARES.users[username] = [];
-        saveShares(SHARES);
         return req.session.save((saveError) => {
           if (saveError) return next(saveError);
           return appRedirect(res, "/dashboard");
@@ -76,9 +68,6 @@ module.exports = function registerAuthRoutes(app, deps) {
 
       USERS[username] = await bcrypt.hash(password, 12);
       saveUsers(USERS);
-      require("fs").mkdirSync(path.join(UPLOADS_USERS, username), { recursive: true });
-      SHARES.users[username] = [];
-      saveShares(SHARES);
       return appRedirect(res, "/login?created=1");
     } catch (error) {
       return next(error);

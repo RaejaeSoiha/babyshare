@@ -1,164 +1,67 @@
-// Authenticated workspace for creating encrypted links and reaching account controls.
+// Authenticated direct-transfer workspace. File bytes stay in the two browsers.
 import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 import { Link } from "react-router-dom";
-import { apiFetch, uploadFormData } from "../lib/api";
+import { useLanTransfers } from "../components/LanTransfers";
+import { apiFetch } from "../lib/api";
 
-type Me = { user: string; isAdmin: boolean; maxUploadBytes?: number };
-type UploadLink = { expires: number; name: string; passwordRequired: boolean; qr: string; url: string };
-type UploadResult = { links: UploadLink[] };
-
+type Me = { isAdmin: boolean; user: string };
 const MAX_FILE_SIZE = 1024 * 1024 * 1024;
 
 function formatFileSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   const units = ["KB", "MB", "GB"];
-  const unitIndex = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)) - 1, units.length - 1);
-  const value = bytes / (1024 ** (unitIndex + 1));
-  return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} ${units[unitIndex]}`;
-}
-
-function UploadIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 16V4m0 0L7.8 8.2M12 4l4.2 4.2M5 15.5v3A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5v-3" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.7" />
-    </svg>
-  );
-}
-
-function FileIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M7 3.5h6l4 4V20a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Zm5.5 0V8H17" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6" />
-    </svg>
-  );
-}
-
-function ShieldIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 3 5 6v5.2c0 4.5 3 8 7 9.8 4-1.8 7-5.3 7-9.8V6l-7-3Zm-3 9 2 2 4.4-4.4" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.7" />
-    </svg>
-  );
-}
-
-function ArrowIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M5 12h13m-5-5 5 5-5 5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
-    </svg>
-  );
-}
-
-function expiryLabel(expires: number) {
-  const remainingDays = Math.max(1, Math.ceil((expires - Date.now()) / (24 * 60 * 60 * 1000)));
-  return `Expires in ${remainingDays} ${remainingDays === 1 ? "day" : "days"}`;
+  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)) - 1, units.length - 1);
+  const value = bytes / (1024 ** (index + 1));
+  return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} ${units[index]}`;
 }
 
 export default function Dashboard() {
   const inputRef = useRef<HTMLInputElement>(null);
+  const { devices, error: lanError, requestTransfers, transfers } = useLanTransfers();
   const [me, setMe] = useState<Me | null>(null);
-  const [result, setResult] = useState<UploadResult | null>(null);
   const [files, setFiles] = useState<File[]>([]);
-  const [label, setLabel] = useState("");
-  const [password, setPassword] = useState("");
+  const [recipientId, setRecipientId] = useState("");
   const [dragging, setDragging] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [copiedUrl, setCopiedUrl] = useState("");
+  const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
-  const maxUploadBytes = me?.maxUploadBytes ?? MAX_FILE_SIZE;
-  const maxUploadLabel = formatFileSize(maxUploadBytes);
 
   useEffect(() => {
-    apiFetch("/api/me")
-      .then((res) => {
-        if (res.status === 401) {
-          window.location.assign("/login");
-          return null;
-        }
-        if (!res.ok) throw new Error("account_load_failed");
-        return res.json() as Promise<Me>;
-      })
-      .then((data) => data && setMe(data))
-      .catch(() => setError("Unable to load your account. Refresh the page and try again."));
+    apiFetch("/api/me").then(async (response) => {
+      if (response.status === 401) { window.location.assign("/login"); return; }
+      if (!response.ok) throw new Error("account_load_failed");
+      setMe(await response.json() as Me);
+    }).catch(() => setError("Unable to load your account. Refresh the page and try again."));
   }, []);
 
-  const chooseFiles = (nextFiles: FileList | File[]) => {
-    const selected = Array.from(nextFiles);
+  useEffect(() => {
+    if (!recipientId && devices[0]) setRecipientId(devices[0].id);
+    if (recipientId && !devices.some((device) => device.id === recipientId)) setRecipientId(devices[0]?.id || "");
+  }, [devices, recipientId]);
+
+  const chooseFiles = (selected: FileList | File[]) => {
+    const next = Array.from(selected);
     setError("");
-    setCopiedUrl("");
-    if (selected.length === 0) return;
-    if (selected.length > 20) {
-      setFiles([]);
-      setError("Choose up to 20 files at a time.");
-      return;
-    }
-    if (selected.some((file) => file.size > maxUploadBytes)) {
-      setFiles([]);
-      setError(`Each file must be ${maxUploadLabel} or smaller.`);
-      return;
-    }
-    setFiles(selected);
+    if (!next.length) return;
+    if (next.length > 20) return setError("Choose up to 20 files at a time.");
+    if (next.some((file) => file.size > MAX_FILE_SIZE)) return setError("Each file must be 1 GB or smaller.");
+    setFiles(next);
   };
 
-  const onFileChange = (event: ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files) chooseFiles(event.target.files);
-  };
-
-  const onDrop = (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    setDragging(false);
-    chooseFiles(event.dataTransfer.files);
-  };
-
-  const clearSelection = () => {
-    setFiles([]);
-    if (inputRef.current) inputRef.current.value = "";
-  };
-
-  const onUpload = async () => {
-    if (files.length === 0 || loading) {
-      if (files.length === 0) setError("Choose at least one file to upload.");
-      return;
-    }
-    if (password && password.length < 4) {
-      setError("Use at least 4 characters for an upload password.");
-      return;
-    }
-
+  const send = async () => {
+    if (!files.length) return setError("Choose at least one file first.");
+    if (!recipientId) return setError("Choose an online recipient. They must keep BabyShare open to accept.");
+    setSending(true);
     setError("");
-    setLoading(true);
-    setProgress(0);
-    setResult(null);
-    setCopiedUrl("");
-    const data = new FormData();
-    files.forEach((file) => data.append("files", file));
-    if (label.trim()) data.append("label", label.trim());
-    if (password) data.append("password", password);
-
     try {
-      const upload = await uploadFormData<UploadResult>("/upload", data, setProgress);
-      setResult(upload);
-      clearSelection();
-      setLabel("");
-      setPassword("");
-    } catch (uploadError) {
-      setError(uploadError instanceof Error && uploadError.message === "file_too_large"
-        ? `Each file must be ${maxUploadLabel} or smaller.`
-        : "Upload failed. Check your connection and try again.");
+      await requestTransfers(recipientId, files);
+      setFiles([]);
+      if (inputRef.current) inputRef.current.value = "";
+    } catch {
+      setError("The file request could not be sent. Keep both devices online and try again.");
     } finally {
-      setLoading(false);
+      setSending(false);
     }
-  };
-
-  const uploadAnother = () => {
-    setResult(null);
-    setProgress(0);
-    setError("");
-    setCopiedUrl("");
-    clearSelection();
-    inputRef.current?.click();
   };
 
   const logout = async () => {
@@ -166,173 +69,43 @@ export default function Dashboard() {
     window.location.assign("/");
   };
 
-  const copyLink = async (url: string) => {
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopiedUrl(url);
-    } catch {
-      setError("Could not copy the link. Select it and copy it manually.");
-    }
-  };
+  if (!me) return <main className="page auth"><section className="auth-card"><h1>{error ? "Workspace unavailable" : "Loading your workspace…"}</h1>{error && <p className="error">{error}</p>}</section></main>;
 
-  const selectedBytes = files.reduce((total, file) => total + file.size, 0);
-
-  if (!me) {
-    return (
-      <div className="page auth">
-        <div className="auth-card">
-          <h1>{error ? "Dashboard unavailable" : "Loading your workspace..."}</h1>
-          {error && <p className="error" role="alert">{error}</p>}
-        </div>
-      </div>
-    );
-  }
-
+  const activeTransfers = transfers.filter((transfer) => ["pending", "accepted", "receiving"].includes(transfer.status)).slice(0, 5);
   return (
-    <main className="page dashboard">
+    <main className="page dashboard direct-dashboard">
       <section className="dashboard-shell">
         <header className="dashboard-header dashboard-topbar">
-          <Link className="dashboard-brand" to="/" aria-label="BabyShare home">
-            <span className="dashboard-brand-mark">ϟ</span>
-            <span>BabyShare</span>
-          </Link>
-          <div className="dashboard-actions">
-            <Link className="btn btn-ghost" to="/files">File Vault</Link>
-            {me.isAdmin && <Link className="btn btn-admin" to="/admin">Admin Panel</Link>}
-            <button className="dashboard-logout" type="button" onClick={() => void logout()}>Log out</button>
-          </div>
+          <Link className="dashboard-brand" to="/" aria-label="BabyShare home"><span className="dashboard-brand-mark">ϟ</span><span>BabyShare</span></Link>
+          <div className="dashboard-actions"><Link className="btn btn-ghost" to="/files">Transfer history</Link><Link className="btn btn-ghost" to="/settings">Devices</Link>{me.isAdmin && <Link className="btn btn-admin" to="/admin">Admin</Link>}<button className="dashboard-logout" type="button" onClick={() => void logout()}>Log out</button></div>
         </header>
 
         <section className="dashboard-welcome dashboard-card">
-          <div>
-            <p className="eyebrow">{me.isAdmin ? "Administrator workspace" : "Personal workspace"}</p>
-            <h1>Good to see you, <span>{me.user}</span>.</h1>
-            <p>Upload files, create secure links, and manage what you share from one focused workspace.</p>
-          </div>
-          <div className="dashboard-status" aria-label="Encryption status">
-            <ShieldIcon />
-            <div><span>Protection</span><strong>Encrypted at rest</strong></div>
-          </div>
+          <div><p className="eyebrow">Direct device transfer</p><h1>Hello, <span>{me.user}</span>.</h1><p>Select an online device, then send files directly through an encrypted browser-to-browser connection.</p></div>
+          <div className="dashboard-status"><div aria-hidden="true">↔</div><div><span>Storage</span><strong>Never uploaded to BabyShare</strong></div></div>
         </section>
 
-        <div className="dashboard-grid dashboard-workspace-grid">
-          <section className="dashboard-card upload-panel" aria-labelledby="new-share-heading">
-            <div className="panel-head">
-              <div>
-                <p className="eyebrow">Secure upload</p>
-                <h2 id="new-share-heading">Create a new share</h2>
-              </div>
-              <span className="pill">Up to 20 files</span>
+        <div className="dashboard-grid dashboard-workspace-grid direct-workspace-grid">
+          <section className="dashboard-card upload-panel" aria-labelledby="send-direct-heading">
+            <div className="panel-head"><div><p className="eyebrow">Send files</p><h2 id="send-direct-heading">Choose files and a recipient</h2></div><span className="pill">Up to 1 GB each</span></div>
+            <div className={`dashboard-dropzone${dragging ? " is-dragging" : ""}`} onDragEnter={(event: DragEvent<HTMLDivElement>) => { event.preventDefault(); setDragging(true); }} onDragOver={(event) => event.preventDefault()} onDragLeave={(event) => { if (event.currentTarget === event.target) setDragging(false); }} onDrop={(event) => { event.preventDefault(); setDragging(false); chooseFiles(event.dataTransfer.files); }}>
+              <input ref={inputRef} className="dashboard-file-input" type="file" multiple onChange={(event: ChangeEvent<HTMLInputElement>) => event.target.files && chooseFiles(event.target.files)} />
+              <span className="dashboard-upload-icon" aria-hidden="true">↑</span><h3>{files.length ? `${files.length} file${files.length === 1 ? "" : "s"} selected` : "Drop files here"}</h3><p>{files.length ? files.map((file) => `${file.name} (${formatFileSize(file.size)})`).join(" · ") : "or choose files from your device"}</p>
+              <button className="btn btn-ghost dashboard-browse" type="button" onClick={() => inputRef.current?.click()} disabled={sending}>Browse files</button>
             </div>
-
-            <div
-              className={`dashboard-dropzone${dragging ? " is-dragging" : ""}`}
-              onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
-              onDragOver={(event) => event.preventDefault()}
-              onDragLeave={(event) => { if (event.currentTarget === event.target) setDragging(false); }}
-              onDrop={onDrop}
-            >
-              <input ref={inputRef} className="dashboard-file-input" type="file" multiple onChange={onFileChange} />
-              <span className="dashboard-upload-icon"><UploadIcon /></span>
-              <h3>{files.length ? `${files.length} ${files.length === 1 ? "file" : "files"} selected` : "Drop files here"}</h3>
-              <p>{files.length ? `${formatFileSize(selectedBytes)} ready to encrypt and share` : "or choose files from your device"}</p>
-              <button className="btn btn-ghost dashboard-browse" type="button" onClick={() => inputRef.current?.click()} disabled={loading}>Browse files</button>
-            </div>
-
-            {files.length > 0 && (
-              <div className="dashboard-file-list" aria-live="polite">
-                {files.map((file) => (
-                  <div className="dashboard-file" key={`${file.name}-${file.lastModified}`}>
-                    <span><FileIcon /></span>
-                    <div><strong>{file.name}</strong><small>{formatFileSize(file.size)}</small></div>
-                  </div>
-                ))}
-                <button className="dashboard-text-button" type="button" onClick={clearSelection} disabled={loading}>Clear selection</button>
-              </div>
-            )}
-
-            <form className="dashboard-upload-form" onSubmit={(event) => { event.preventDefault(); void onUpload(); }}>
-              <div className="dashboard-options">
-                <label>
-                  Label <span>optional</span>
-                  <input value={label} maxLength={120} onChange={(event) => setLabel(event.target.value)} placeholder="e.g. Project handoff" />
-                </label>
-                <label>
-                  Link password <span>optional</span>
-                  <input type="password" value={password} minLength={4} maxLength={128} onChange={(event) => setPassword(event.target.value)} placeholder="4+ characters" />
-                </label>
-              </div>
-
-              <button type="submit" className="btn btn-guest dashboard-upload-button" disabled={loading || files.length === 0}>
-                {loading ? `Encrypting and uploading ${progress}%` : "Create secure share"}
-                {!loading && <ArrowIcon />}
-              </button>
-            </form>
-
-            {loading && (
-              <div className="upload-progress dashboard-progress" aria-live="polite">
-                <progress max="100" value={progress} />
-                <span>{progress}% complete</span>
-              </div>
-            )}
-            {error && <p className="error dashboard-error" role="alert">{error}</p>}
+            <label className="direct-recipient-label">Online recipient
+              <select value={recipientId} onChange={(event) => setRecipientId(event.target.value)} disabled={!devices.length || sending}>
+                {!devices.length && <option value="">No other devices online</option>}
+                {devices.map((device) => <option key={device.id} value={device.id}>{device.displayName} · {device.platform}</option>)}
+              </select>
+            </label>
+            <div className="direct-send-actions"><button className="btn btn-register" type="button" disabled={!files.length || !recipientId || sending} onClick={() => void send()}>{sending ? "Sending request…" : "Request direct transfer"}</button>{files.length > 0 && <button className="dashboard-text-button" type="button" onClick={() => setFiles([])}>Clear files</button>}</div>
+            <p className="nearby-privacy-note">The recipient chooses a save location before accepting. BabyShare transports only connection signals and transfer metadata.</p>
+            {(error || lanError) && <p className="error" role="alert">{error || lanError}</p>}
           </section>
 
-          <aside className="dashboard-card dashboard-side-panel">
-            <div>
-              <p className="eyebrow">Workspace tools</p>
-              <h2>Everything in reach</h2>
-            </div>
-            <Link className="dashboard-tool" to="/files">
-              <span className="dashboard-tool-icon"><FileIcon /></span>
-              <span><strong>File Vault</strong><small>Review, download, or remove stored files.</small></span>
-              <ArrowIcon />
-            </Link>
-            {me.isAdmin && (
-              <Link className="dashboard-tool" to="/admin">
-                <span className="dashboard-tool-icon admin"><ShieldIcon /></span>
-                <span><strong>Admin controls</strong><small>Manage users and monitor shared files.</small></span>
-                <ArrowIcon />
-              </Link>
-            )}
-            <div className="dashboard-rule-list">
-              <div><span>30 days</span><small>Signed-in links remain available.</small></div>
-              <div><span>{maxUploadLabel}</span><small>Maximum size for every selected file.</small></div>
-              <div><span>Private</span><small>Password protection is available per share.</small></div>
-            </div>
-          </aside>
+          <aside className="dashboard-card direct-status-card"><p className="eyebrow">Nearby devices</p><h2>{devices.length} online</h2><p>{devices.length ? "Only other active devices are listed. Your own device is never counted." : "Open BabyShare on another device and keep the page active."}</p><Link className="btn btn-ghost" to="/guest-upload">Pair a guest with QR</Link><div className="direct-transfer-summary"><strong>Active transfers</strong>{activeTransfers.length ? activeTransfers.map((transfer) => <p key={transfer.id}>{transfer.name} · {transfer.progress}% · {transfer.peerName}</p>) : <p>No transfers in progress.</p>}</div></aside>
         </div>
-
-        {result && (
-          <section className="dashboard-card share-results" aria-live="polite">
-            <div className="panel-head">
-              <div>
-                <p className="eyebrow">Share created</p>
-                <h2>{result.links.length === 1 ? "Your secure link is ready" : `${result.links.length} secure links are ready`}</h2>
-              </div>
-              <span className="pill alt">Ready to share</span>
-            </div>
-            <div className="share-grid">
-              {result.links.map((link) => (
-                <article key={link.url} className="share-row">
-                  <div className="share-file-summary">
-                    <span className="dashboard-tool-icon"><FileIcon /></span>
-                    <div>
-                      <strong>{link.name}</strong>
-                      <div className="meta">{link.passwordRequired ? "Password protected" : "Anyone with the link can access"} · {expiryLabel(link.expires)}</div>
-                    </div>
-                  </div>
-                  <div className="file-actions dashboard-share-actions">
-                    <button className="btn btn-guest" type="button" onClick={() => void copyLink(link.url)}>{copiedUrl === link.url ? "Link copied" : "Copy link"}</button>
-                    <a className="btn btn-register" href={`${link.url}?action=preview`}>Preview</a>
-                    <a className="dashboard-inline-link" href={`${link.url}?action=download`}>Download</a>
-                  </div>
-                </article>
-              ))}
-            </div>
-            <button className="dashboard-text-button dashboard-upload-another" type="button" onClick={uploadAnother}>Upload another file <ArrowIcon /></button>
-          </section>
-        )}
       </section>
     </main>
   );

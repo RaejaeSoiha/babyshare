@@ -2,7 +2,6 @@
 process.env.NODE_ENV = "production";
 process.env.PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || "https://share.example.com";
 process.env.SESSION_SECRET = process.env.SESSION_SECRET || "ci-session-secret-with-at-least-thirty-two-characters";
-process.env.FILE_KEY = process.env.FILE_KEY || "ci-file-key-with-at-least-thirty-two-characters";
 process.env.TRUST_PROXY = process.env.TRUST_PROXY || "true";
 
 const { validateRuntimeConfig } = require("../src/config");

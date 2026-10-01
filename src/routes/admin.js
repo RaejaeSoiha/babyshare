@@ -1,19 +1,15 @@
 // Admin-only user management APIs.
 const bcrypt = require("bcryptjs");
-const fs = require("fs");
 const path = require("path");
-const { hasOwn, isValidPassword, isValidUsername, normalizeUsername, resolveWithin } = require("../utils/security");
+const { hasOwn, isValidPassword, isValidUsername, normalizeUsername } = require("../utils/security");
 
 module.exports = function registerAdminRoutes(app, deps) {
   const {
     DIST_DIR,
     HAS_DIST,
-    SHARES,
-    UPLOADS_USERS,
     USERS,
     requireAdmin,
     requireLogin,
-    saveShares,
     saveUsers,
   } = deps;
 
@@ -23,12 +19,12 @@ module.exports = function registerAdminRoutes(app, deps) {
   });
 
   app.get("/api/admin/overview", requireLogin, requireAdmin, (_req, res) => {
-    res.json({ guestsCount: Object.keys(SHARES.guests || {}).length, usersCount: Object.keys(USERS).length });
+    res.json({ guestsCount: 0, usersCount: Object.keys(USERS).length });
   });
 
   app.get("/api/admin/users", requireLogin, requireAdmin, (_req, res) => {
     const users = Object.keys(USERS).map((username) => ({
-      fileCount: Array.isArray(SHARES.users[username]) ? SHARES.users[username].length : 0,
+      fileCount: 0,
       username,
     }));
     res.json({ users });
@@ -43,13 +39,8 @@ module.exports = function registerAdminRoutes(app, deps) {
       }
       if (hasOwn(USERS, username)) return res.status(409).json({ error: "user_exists" });
 
-      const directory = resolveWithin(UPLOADS_USERS, username);
-      if (!directory) return res.status(400).json({ error: "invalid_account" });
       USERS[username] = await bcrypt.hash(password, 12);
-      SHARES.users[username] = [];
-      fs.mkdirSync(directory, { recursive: true });
       saveUsers(USERS);
-      saveShares(SHARES);
       return res.status(201).json({ ok: true });
     } catch (error) {
       return next(error);
@@ -76,14 +67,8 @@ module.exports = function registerAdminRoutes(app, deps) {
       const username = req.params.u;
       if (username === "admin") return res.status(403).json({ error: "protected" });
       if (!hasOwn(USERS, username)) return res.status(404).json({ error: "not_found" });
-      const directory = resolveWithin(UPLOADS_USERS, username);
-      if (!directory) return res.status(400).json({ error: "invalid_account" });
-
-      await fs.promises.rm(directory, { recursive: true, force: true });
       delete USERS[username];
-      delete SHARES.users[username];
       saveUsers(USERS);
-      saveShares(SHARES);
       return res.status(204).end();
     } catch (error) {
       return next(error);

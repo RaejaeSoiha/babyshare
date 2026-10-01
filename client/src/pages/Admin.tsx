@@ -1,4 +1,4 @@
-// Administration console for user lifecycle and storage visibility.
+// Administration console for user lifecycle and direct-transfer workspace status.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiFetch } from "../lib/api";
@@ -174,7 +174,6 @@ export default function Admin() {
         return left.username.localeCompare(right.username);
       });
   }, [query, users]);
-  const storedFileCount = users.reduce((total, user) => total + user.fileCount, 0);
 
   return (
     <main className="page admin-page">
@@ -186,7 +185,7 @@ export default function Admin() {
           </Link>
           <div className="dashboard-actions">
             <Link className="btn btn-ghost" to="/dashboard">Dashboard</Link>
-            <Link className="btn btn-ghost" to="/files">File Vault</Link>
+            <Link className="btn btn-ghost" to="/files">Transfer history</Link>
           </div>
         </header>
 
@@ -194,7 +193,7 @@ export default function Admin() {
           <div>
             <p className="eyebrow">BabyShare control center</p>
             <h1>Administration, <span>made clear.</span></h1>
-            <p>Manage accounts, review active storage, and keep your private sharing workspace organized.</p>
+            <p>Manage accounts for your private direct-sharing workspace. BabyShare does not retain uploaded files.</p>
           </div>
           <div className="admin-health" aria-label="System status">
             <span className="admin-health-dot" />
@@ -209,7 +208,7 @@ export default function Admin() {
           </article>
           <article className="admin-metric dashboard-card">
             <span className="admin-metric-icon files"><FileIcon /></span>
-            <div><strong>{storedFileCount}</strong><span>Stored files</span></div>
+            <div><strong>0</strong><span>Stored files</span></div>
           </article>
           <article className="admin-metric dashboard-card">
             <span className="admin-metric-icon guests"><ShieldIcon /></span>
@@ -240,7 +239,7 @@ export default function Admin() {
 
           <section className="dashboard-card admin-users-card">
             <header className="admin-users-header">
-              <div><p className="eyebrow">Account directory</p><h2>Users and storage</h2></div>
+              <div><p className="eyebrow">Account directory</p><h2>Users</h2></div>
               <button className="btn btn-ghost" type="button" onClick={() => void loadAll()}>Refresh</button>
             </header>
             <label className="admin-search">

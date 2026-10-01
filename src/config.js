@@ -46,7 +46,7 @@ function provisionDesktopSecrets() {
   }
 
   let changed = false;
-  for (const key of ["FILE_KEY", "SESSION_SECRET"]) {
+  for (const key of ["SESSION_SECRET"]) {
     if (typeof secrets[key] !== "string" || secrets[key].length < 32) {
       secrets[key] = crypto.randomBytes(48).toString("base64url");
       changed = true;
@@ -113,7 +113,6 @@ function validateRuntimeConfig() {
 
   const required = [
     ["SESSION_SECRET", process.env.SESSION_SECRET],
-    ["FILE_KEY", process.env.FILE_KEY],
   ];
   const missing = required.filter(([, value]) => !isStrongSecret(value)).map(([name]) => name);
   if (!IS_DESKTOP && !PUBLIC_BASE_URL) missing.push("PUBLIC_BASE_URL");

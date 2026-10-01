@@ -1,7 +1,6 @@
 // Ephemeral, consent-based transfers between browser devices connected to one BabyShare LAN hub.
 const crypto = require("crypto");
-const fs = require("fs");
-const { isValidUploadName, resolveWithin } = require("../utils/security");
+const { isValidUploadName } = require("../utils/security");
 
 const DEVICE_TTL_MS = 45_000;
 const PENDING_TTL_MS = 10 * 60 * 1000;
@@ -40,7 +39,8 @@ function validFileMeta(file) {
     && isValidUploadName(file.name)
     && Number.isSafeInteger(file.size)
     && file.size > 0
-    && file.size <= MAX_FILE_SIZE;
+    && file.size <= MAX_FILE_SIZE
+    && (file.relativePath === undefined || (typeof file.relativePath === "string" && file.relativePath.length <= 500 && !file.relativePath.includes("..")));
 }
 
 function cleanChatMessage(value) {
@@ -61,17 +61,14 @@ function validSignal(signal) {
 }
 
 class LanTransferService {
-  constructor({ uploadDirectory, defaultTransport = "relay" }) {
-    this.uploadDirectory = uploadDirectory;
-    this.defaultTransport = defaultTransport === "peer" ? "peer" : "relay";
+  constructor() {
     this.devices = new Map();
     this.chats = new Map();
     this.transfers = new Map();
     this.signals = new Map();
-    fs.mkdirSync(uploadDirectory, { recursive: true });
   }
 
-  heartbeat({ deviceId, deviceToken, platform }, scope, user) {
+  heartbeat({ deviceId, deviceToken, deviceName, platform }, scope, user) {
     if (!isDeviceId(deviceId) || !isDeviceToken(deviceToken)) return null;
     const now = Date.now();
     const existing = this.devices.get(deviceId);
@@ -81,7 +78,7 @@ class LanTransferService {
     const normalizedPlatform = cleanName(platform, "Browser");
     const displayName = cleanName(user, "Guest");
     const device = {
-      deviceName: `${normalizedPlatform} device`,
+      deviceName: cleanName(deviceName, `${normalizedPlatform} device`),
       displayName,
       id: deviceId,
       name: displayName,
@@ -234,8 +231,9 @@ class LanTransferService {
       return { error: "device_unavailable" };
     }
 
-    const activeForSender = [...this.transfers.values()].filter((transfer) => transfer.senderId === sender.id).length;
-    const activeForRecipient = [...this.transfers.values()].filter((transfer) => transfer.recipientId === recipient.id).length;
+    const isActive = (transfer) => ["pending", "accepted", "receiving"].includes(transfer.status);
+    const activeForSender = [...this.transfers.values()].filter((transfer) => transfer.senderId === sender.id && isActive(transfer)).length;
+    const activeForRecipient = [...this.transfers.values()].filter((transfer) => transfer.recipientId === recipient.id && isActive(transfer)).length;
     if (activeForSender + files.length > MAX_ACTIVE_TRANSFERS_PER_DEVICE || activeForRecipient + files.length > MAX_ACTIVE_TRANSFERS_PER_DEVICE) {
       return { error: "transfer_limit_reached" };
     }
@@ -249,13 +247,14 @@ class LanTransferService {
         recipientId: recipient.id,
         recipientName: recipient.name,
         name: file.name,
+        relativePath: typeof file.relativePath === "string" ? file.relativePath : "",
         size: file.size,
         status: "pending",
-        transport: this.defaultTransport,
+        // BabyShare only negotiates WebRTC metadata. File bytes never enter this service.
+        transport: "peer",
         createdAt: now,
         updatedAt: now,
         bytesTransferred: 0,
-        storedFile: null,
       };
       this.transfers.set(transfer.id, transfer);
       return this.toClientTransfer(transfer, sender);
@@ -288,18 +287,6 @@ class LanTransferService {
     return true;
   }
 
-  beginUpload(id, sender) {
-    const transfer = this.getTransferForSender(id, sender);
-    if (!transfer || transfer.status !== "accepted") return null;
-    // The encrypted relay remains available when a browser cannot establish a
-    // direct WebRTC path (for example, on isolated corporate Wi-Fi).
-    transfer.transport = "relay";
-    transfer.status = "receiving";
-    transfer.updatedAt = Date.now();
-    transfer.bytesTransferred = 0;
-    return transfer;
-  }
-
   updateProgress(transfer, bytesTransferred) {
     if (!transfer || transfer.status !== "receiving") return;
     transfer.bytesTransferred = Math.min(transfer.size, Math.max(0, Math.floor(bytesTransferred)));
@@ -323,44 +310,22 @@ class LanTransferService {
     return this.toClientTransfer(transfer, sender);
   }
 
-  fallbackToRelay(id, sender) {
-    const transfer = this.getTransferForSender(id, sender);
-    if (!transfer || transfer.transport !== "peer" || !["accepted", "receiving"].includes(transfer.status)) return null;
-    transfer.transport = "relay";
-    transfer.status = "accepted";
-    transfer.bytesTransferred = 0;
-    transfer.updatedAt = Date.now();
-    return this.toClientTransfer(transfer, sender);
-  }
-
   completePeerTransfer(id, recipient) {
     const transfer = this.getTransferForRecipient(id, recipient);
     if (!transfer || transfer.transport !== "peer" || transfer.status !== "receiving" || transfer.bytesTransferred < transfer.size) return null;
     transfer.bytesTransferred = transfer.size;
-    transfer.status = "ready";
+    transfer.status = "completed";
     transfer.updatedAt = Date.now();
     return this.toClientTransfer(transfer, recipient);
   }
 
-  consumePeerTransfer(id, recipient) {
-    const transfer = this.getTransferForRecipient(id, recipient);
-    if (!transfer || transfer.transport !== "peer" || transfer.status !== "ready") return false;
-    this.transfers.delete(id);
-    return true;
-  }
-
-  completeUpload(transfer, storedFile) {
-    if (!transfer || transfer.status !== "receiving") return null;
-    transfer.storedFile = storedFile;
-    transfer.bytesTransferred = transfer.size;
-    transfer.status = "ready";
+  cancelTransfer(id, device, { failed = false } = {}) {
+    const transfer = this.transfers.get(id);
+    if (!transfer || (transfer.senderId !== device.id && transfer.recipientId !== device.id)) return null;
+    if (["completed", "cancelled", "failed"].includes(transfer.status)) return null;
+    transfer.status = failed ? "failed" : "cancelled";
     transfer.updatedAt = Date.now();
-    return transfer;
-  }
-
-  failUpload(transfer) {
-    if (!transfer || transfer.status !== "receiving") return;
-    this.transfers.delete(transfer.id);
+    return this.toClientTransfer(transfer, device);
   }
 
   listTransfers(device) {
@@ -369,34 +334,6 @@ class LanTransferService {
       .filter((transfer) => transfer.senderId === device.id || transfer.recipientId === device.id)
       .sort((left, right) => right.updatedAt - left.updatedAt)
       .map((transfer) => this.toClientTransfer(transfer, device));
-  }
-
-  claimDownload(id, recipient) {
-    const transfer = this.getTransferForRecipient(id, recipient);
-    if (!transfer || transfer.status !== "ready" || !transfer.storedFile) return null;
-    const filePath = resolveWithin(this.uploadDirectory, transfer.storedFile);
-    if (!filePath || !fs.existsSync(filePath)) return null;
-    transfer.status = "downloading";
-    transfer.updatedAt = Date.now();
-    return { filePath, name: transfer.name };
-  }
-
-  async completeDownload(id, recipient) {
-    const transfer = this.getTransferForRecipient(id, recipient);
-    if (!transfer || transfer.status !== "downloading" || !transfer.storedFile) return false;
-    const filePath = resolveWithin(this.uploadDirectory, transfer.storedFile);
-    if (!filePath) return false;
-    await fs.promises.unlink(filePath);
-    this.transfers.delete(id);
-    return true;
-  }
-
-  releaseDownload(id, recipient) {
-    const transfer = this.getTransferForRecipient(id, recipient);
-    if (transfer && transfer.status === "downloading") {
-      transfer.status = "ready";
-      transfer.updatedAt = Date.now();
-    }
   }
 
   toClientChat(chat, device) {
@@ -422,7 +359,7 @@ class LanTransferService {
     const outgoing = transfer.senderId === device.id;
     const peerId = outgoing ? transfer.recipientId : transfer.senderId;
     const peerName = outgoing ? transfer.recipientName : transfer.senderName;
-    const progress = transfer.status === "ready"
+    const progress = transfer.status === "completed"
       ? 100
       : transfer.size > 0
         ? Math.min(99, Math.round((transfer.bytesTransferred / transfer.size) * 100))
@@ -432,12 +369,13 @@ class LanTransferService {
       direction: outgoing ? "outgoing" : "incoming",
       id: transfer.id,
       name: transfer.name,
+      relativePath: transfer.relativePath || undefined,
       peerId,
       peerName: peerName || "Nearby device",
       progress,
       size: transfer.size,
       status: transfer.status,
-      transport: transfer.transport || "relay",
+      transport: "peer",
       updatedAt: transfer.updatedAt,
     };
   }
@@ -472,10 +410,6 @@ class LanTransferService {
           ? ACCEPTED_TTL_MS
           : READY_TTL_MS;
       if (transfer.updatedAt + ttl >= now) continue;
-      if (transfer.storedFile) {
-        const filePath = resolveWithin(this.uploadDirectory, transfer.storedFile);
-        if (filePath) fs.promises.unlink(filePath).catch(() => {});
-      }
       this.transfers.delete(id);
     }
     for (const [deviceId, queue] of this.signals) {

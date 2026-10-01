@@ -1,10 +1,9 @@
-// JSON-backed storage for users and share metadata.
+// JSON-backed local account storage. Direct-transfer metadata is ephemeral.
 const fs = require("fs");
 const path = require("path");
 const { DATA_DIR, IS_PRODUCTION } = require("../config");
 
 const USERS_FILE = path.join(DATA_DIR, "users.json");
-const SHARES_FILE = path.join(DATA_DIR, "shares.json");
 
 function readJson(file, fallback, description) {
   if (!fs.existsSync(file)) {
@@ -36,23 +35,12 @@ function loadUsers() {
   return readJson(USERS_FILE, {}, "user store");
 }
 
-function loadShares() {
-  return readJson(SHARES_FILE, { users: {}, guests: {} }, "share store");
-}
-
 function saveUsers(users) {
   writeJson(USERS_FILE, users);
 }
 
-function saveShares(shares) {
-  writeJson(SHARES_FILE, shares);
-}
-
 module.exports = {
-  SHARES_FILE,
   USERS_FILE,
-  loadShares,
   loadUsers,
-  saveShares,
   saveUsers,
 };

@@ -1,7 +1,4 @@
 // Browser-compatible LAN device presence and consent-based direct transfers.
-const fs = require("fs");
-const multer = require("multer");
-const { isValidUploadName, resolveWithin } = require("../utils/security");
 const { getLanScope, isPrivateLanAddress } = require("../utils/network");
 
 function credentialsFrom(req, allowQuery = false) {
@@ -14,22 +11,12 @@ function credentialsFrom(req, allowQuery = false) {
 
 module.exports = function registerLanRoutes(app, deps) {
   const {
-    LAN_TRANSFER_TMP,
     LAN_TRANSFERS,
-    SECRET_KEY,
     WEBRTC_SIGNALING_ENABLED,
-    decryptFile,
-    encryptFile,
     lanLimiter,
   } = deps;
 
   app.use("/api/lan", lanLimiter);
-
-  const uploadTransfer = multer({
-    dest: LAN_TRANSFER_TMP,
-    fileFilter: (_req, file, callback) => callback(null, isValidUploadName(file.originalname)),
-    limits: { fieldNameSize: 100, fields: 0, fileSize: 1024 * 1024 * 1024, files: 1, parts: 1 },
-  });
 
   function requireLanRequest(req, res) {
     // req.ip is the client address only when the explicitly configured, one-hop
@@ -171,21 +158,6 @@ module.exports = function registerLanRoutes(app, deps) {
     return res.json({ transfer });
   });
 
-  app.post("/api/lan/transfers/:id/peer-consume", (req, res) => {
-    const recipient = requireDevice(req, res);
-    if (!recipient) return;
-    if (!LAN_TRANSFERS.consumePeerTransfer(req.params.id, recipient)) return res.status(404).json({ error: "transfer_unavailable" });
-    return res.status(204).end();
-  });
-
-  app.post("/api/lan/transfers/:id/fallback", (req, res) => {
-    const sender = requireDevice(req, res);
-    if (!sender) return;
-    const transfer = LAN_TRANSFERS.fallbackToRelay(req.params.id, sender);
-    if (!transfer) return res.status(409).json({ error: "transfer_unavailable" });
-    return res.json({ transfer });
-  });
-
   app.post("/api/lan/transfers/:id/decline", (req, res) => {
     const recipient = requireDevice(req, res);
     if (!recipient) return;
@@ -193,68 +165,13 @@ module.exports = function registerLanRoutes(app, deps) {
     return res.status(204).end();
   });
 
-  app.post("/api/lan/transfers/:id/content", (req, res, next) => {
-    const sender = requireDevice(req, res);
-    if (!sender) return;
-    const transfer = LAN_TRANSFERS.beginUpload(req.params.id, sender);
-    if (!transfer) return res.status(409).json({ error: "transfer_not_accepted" });
-
-    const contentLength = Number.parseInt(req.get("content-length") || "", 10);
-    let received = 0;
-    req.on("data", (chunk) => {
-      received += chunk.length;
-      const estimatedFileBytes = Number.isFinite(contentLength) && contentLength > 0
-        ? (received / contentLength) * transfer.size
-        : received;
-      LAN_TRANSFERS.updateProgress(transfer, estimatedFileBytes);
-    });
-
-    uploadTransfer.single("file")(req, res, async (error) => {
-      if (error) {
-        LAN_TRANSFERS.failUpload(transfer);
-        return next(error);
-      }
-      if (!req.file || req.file.originalname !== transfer.name) {
-        LAN_TRANSFERS.failUpload(transfer);
-        if (req.file) await fs.promises.unlink(req.file.path).catch(() => {});
-        return res.status(400).json({ error: "invalid_transfer_file" });
-      }
-
-      const storedFile = `${transfer.id}.enc`;
-      const encryptedPath = resolveWithin(LAN_TRANSFERS.uploadDirectory, storedFile);
-      if (!encryptedPath) {
-        LAN_TRANSFERS.failUpload(transfer);
-        await fs.promises.unlink(req.file.path).catch(() => {});
-        return res.status(400).json({ error: "invalid_transfer_file" });
-      }
-
-      try {
-        await encryptFile(req.file.path, encryptedPath, SECRET_KEY);
-        await fs.promises.unlink(req.file.path).catch(() => {});
-        const completed = LAN_TRANSFERS.completeUpload(transfer, storedFile);
-        return res.status(201).json({ transfer: LAN_TRANSFERS.toClientTransfer(completed, sender) });
-      } catch (uploadError) {
-        LAN_TRANSFERS.failUpload(transfer);
-        await fs.promises.unlink(req.file.path).catch(() => {});
-        await fs.promises.unlink(encryptedPath).catch(() => {});
-        return next(uploadError);
-      }
-    });
-  });
-
-  app.get("/api/lan/transfers/:id/download", async (req, res, next) => {
-    const recipient = requireDevice(req, res, { allowQuery: true });
-    if (!recipient) return;
-    const download = LAN_TRANSFERS.claimDownload(req.params.id, recipient);
-    if (!download) return res.status(404).json({ error: "transfer_unavailable" });
-    try {
-      const sent = await decryptFile(download.filePath, res, download.name, SECRET_KEY, { disposition: "attachment" });
-      if (sent) await LAN_TRANSFERS.completeDownload(req.params.id, recipient);
-      else LAN_TRANSFERS.releaseDownload(req.params.id, recipient);
-      return;
-    } catch (error) {
-      LAN_TRANSFERS.releaseDownload(req.params.id, recipient);
-      return next(error);
-    }
+  // Both participants can cancel an in-flight direct transfer. This changes
+  // metadata only; BabyShare never receives the file bytes.
+  app.post("/api/lan/transfers/:id/cancel", (req, res) => {
+    const device = requireDevice(req, res);
+    if (!device) return;
+    const transfer = LAN_TRANSFERS.cancelTransfer(req.params.id, device, { failed: req.body?.failed === true });
+    if (!transfer) return res.status(404).json({ error: "transfer_unavailable" });
+    return res.json({ transfer });
   });
 };

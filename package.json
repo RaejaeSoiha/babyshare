@@ -12,7 +12,7 @@
         "cf:build": "npm run client:build",
         "cf:dev": "npm run cf:build && wrangler dev --local",
         "cf:dry-run": "npm run cf:build && wrangler deploy --dry-run",
-        "cf:deploy": "npm run cf:build && wrangler deploy",
+        "cf:deploy": "npm run cf:build && npm run cf:d1:migrate && wrangler deploy",
         "cf:d1:migrate:local": "wrangler d1 migrations apply babyshare --local",
         "cf:d1:migrate": "wrangler d1 migrations apply babyshare --remote",
         "check:production-config": "node scripts/validate-production-config.js",
@@ -25,8 +25,6 @@
         "express": "^5.2.1",
         "express-session": "^1.18.2",
         "helmet": "^8.1.0",
-        "multer": "^2.4.0",
-        "qrcode": "^1.5.4",
         "session-file-store": "^1.5.0"
     },
     "devDependencies": {

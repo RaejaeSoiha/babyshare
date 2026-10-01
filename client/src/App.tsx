@@ -8,10 +8,10 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import GuestUpload from "./pages/GuestUpload";
 import GuestReceive from "./pages/GuestReceive";
-import GuestLogin from "./pages/GuestLogin";
 import Dashboard from "./pages/Dashboard";
 import Files from "./pages/Files";
 import Admin from "./pages/Admin";
+import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import "./App.css";
 
@@ -26,10 +26,11 @@ export default function App() {
           <Route path="/register" element={<Register />} />
           <Route path="/guest-upload" element={<GuestUpload />} />
           <Route path="/guest-receive" element={<GuestReceive />} />
-          <Route path="/guest-login" element={<GuestLogin />} />
+          <Route path="/guest-login" element={<Navigate to="/guest-receive" replace />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/files" element={<Files />} />
           <Route path="/admin" element={<Admin />} />
+          <Route path="/settings" element={<Settings />} />
           <Route path="/list" element={<Navigate to="/files" replace />} />
           <Route path="/manage-users" element={<Navigate to="/admin" replace />} />
           <Route path="/home" element={<Navigate to="/" replace />} />

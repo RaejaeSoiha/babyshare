@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { apiFetch, apiUrl, uploadFormData } from "../lib/api";
+import { apiFetch } from "../lib/api";
+import { QR_PEER_CONFIG } from "../lib/qrPairing";
 
 export type LanDevice = {
   deviceName: string;
@@ -32,12 +33,13 @@ export type LanTransfer = {
   direction: "incoming" | "outgoing";
   id: string;
   name: string;
+  relativePath?: string;
   peerId: string;
   peerName: string;
   progress: number;
   size: number;
-  status: "pending" | "accepted" | "receiving" | "ready" | "downloading";
-  transport: "peer" | "relay";
+  status: "pending" | "accepted" | "receiving" | "completed" | "cancelled" | "failed";
+  transport: "peer";
   updatedAt: number;
 };
 
@@ -52,7 +54,7 @@ type LanSignal = {
 type SignalEnvelope = { senderId: string; signal: LanSignal };
 type PeerSession = {
   channel?: RTCDataChannel;
-  chunks: BlobPart[];
+  chunks?: BlobPart[];
   expectedSize: number;
   finished: boolean;
   id: string;
@@ -63,8 +65,11 @@ type PeerSession = {
   transfer: LanTransfer;
   peerId: string;
   timeout?: number;
+  writeChain: Promise<void>;
+  writer?: FileSystemWritableFileStream;
 };
 type PendingPeerCandidate = { candidate: RTCIceCandidateInit; senderId: string };
+type ReceiverSink = { chunks?: BlobPart[]; writer?: FileSystemWritableFileStream };
 type LanTransferContextValue = {
   chats: LanChat[];
   devices: LanDevice[];
@@ -75,10 +80,16 @@ type LanTransferContextValue = {
   endChat: (chatId: string) => Promise<void>;
   markChatRead: (chatId: string) => void;
   requestTransfers: (recipientId: string, files: File[]) => Promise<void>;
+  currentDevice: { id: string; name: string; platform: string };
+  renameCurrentDevice: (name: string) => void;
+  signOutCurrentDevice: () => void;
+  discoverable: boolean;
+  setDiscoverable: (value: boolean) => void;
   transfers: LanTransfer[];
   unreadChatIds: string[];
   acceptTransfer: (transferId: string) => Promise<void>;
   declineTransfer: (transferId: string) => Promise<void>;
+  cancelTransfer: (transfer: LanTransfer) => Promise<void>;
   downloadTransfer: (transfer: LanTransfer) => void;
   dismissMessageNotification: (messageId: string) => void;
   messageNotifications: LanMessageNotification[];
@@ -87,6 +98,16 @@ type LanTransferContextValue = {
 const LanTransferContext = createContext<LanTransferContextValue | null>(null);
 const DEVICE_ID_KEY = "babyshare.lan.device-id";
 const DEVICE_TOKEN_KEY = "babyshare.lan.device-token";
+const DEVICE_NAME_KEY = "babyshare.lan.device-name";
+const DISCOVERABLE_KEY = "babyshare.lan.discoverable";
+const MEMORY_RECEIVE_LIMIT = 32 * 1024 * 1024;
+
+declare global {
+  interface Window {
+    showSaveFilePicker?: (options?: { suggestedName?: string }) => Promise<{ createWritable: () => Promise<FileSystemWritableFileStream> }>;
+  }
+
+}
 
 function randomValue() {
   if (typeof crypto.randomUUID === "function") return crypto.randomUUID().replace(/-/g, "");
@@ -118,6 +139,12 @@ function getIdentity(): DeviceIdentity {
   return { deviceId, deviceToken, platform: devicePlatform() };
 }
 
+function initialDeviceName(platform: string) {
+  const saved = localStorage.getItem(DEVICE_NAME_KEY) || "";
+  const cleaned = saved.replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 80);
+  return cleaned || `${platform} device`;
+}
+
 function messageForError(error: unknown) {
   if (error instanceof Error && error.message === "device_unavailable") return "That device is no longer available. Refresh and try again.";
   return "Nearby device sharing is temporarily unavailable. Keep BabyShare open and try again.";
@@ -125,9 +152,11 @@ function messageForError(error: unknown) {
 
 export function LanTransferProvider({ children }: { children: ReactNode }) {
   const [identity] = useState(getIdentity);
+  const [deviceName, setDeviceName] = useState(() => initialDeviceName(identity.platform));
+  const [discoverable, setDiscoverableState] = useState(() => localStorage.getItem(DISCOVERABLE_KEY) !== "false");
   const pendingFilesRef = useRef(new Map<string, File>());
-  const uploadsInFlightRef = useRef(new Set<string>());
   const peerSessionsRef = useRef(new Map<string, PeerSession>());
+  const receiverSinksRef = useRef(new Map<string, ReceiverSink>());
   const pendingPeerCandidatesRef = useRef(new Map<string, PendingPeerCandidate[]>());
   const peerFilesRef = useRef(new Map<string, Blob>());
   const peerStartsRef = useRef(new Set<string>());
@@ -155,8 +184,13 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
   }, [transfers]);
 
   const refresh = useCallback(async () => {
+    if (!discoverable) {
+      setDevices([]);
+      setError("");
+      return;
+    }
     const presence = await apiFetch("/api/lan/presence", {
-      body: JSON.stringify(identity),
+      body: JSON.stringify({ ...identity, deviceName }),
       headers: { "Content-Type": "application/json" },
       method: "POST",
     });
@@ -204,7 +238,7 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
     }
     setTransfers(transferPayload.transfers);
     setError("");
-  }, [deviceHeaders, identity]);
+  }, [deviceHeaders, deviceName, discoverable, identity]);
 
   useEffect(() => {
     let active = true;
@@ -299,7 +333,7 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
   const requestTransfers = useCallback(async (recipientId: string, files: File[]) => {
     const response = await apiFetch("/api/lan/transfers/request", {
       body: JSON.stringify({
-        files: files.map((file) => ({ name: file.name, size: file.size })),
+        files: files.map((file) => ({ name: file.name, relativePath: file.webkitRelativePath || undefined, size: file.size })),
         recipientId,
       }),
       headers: { "Content-Type": "application/json", ...deviceHeaders() },
@@ -314,6 +348,18 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
 
   const acceptTransfer = useCallback(async (transferId: string) => {
     try {
+      const requested = transfersRef.current.find((transfer) => transfer.id === transferId && transfer.direction === "incoming");
+      if (!requested) throw new Error("transfer_unavailable");
+      // Stream into a user-selected file when the browser permits it. On
+      // platforms without the File System Access API, only small files use a
+      // bounded in-memory fallback; large files are never accumulated in RAM.
+      let writer: FileSystemWritableFileStream | undefined;
+      if (window.showSaveFilePicker) {
+        const handle = await window.showSaveFilePicker({ suggestedName: requested.name });
+        writer = await handle.createWritable();
+      } else if (requested.size > MEMORY_RECEIVE_LIMIT) {
+        throw new Error("save_picker_required");
+      }
       const response = await apiFetch(`/api/lan/transfers/${encodeURIComponent(transferId)}/accept`, {
         body: JSON.stringify({}),
         headers: { "Content-Type": "application/json", ...deviceHeaders() },
@@ -321,10 +367,15 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
       });
       const payload = await response.json().catch(() => ({})) as { transfer?: LanTransfer };
       if (!response.ok || !payload.transfer) throw new Error("transfer_response_failed");
+      // Store the stream before the offer can arrive. The session is created
+      // later when WebRTC receives that offer.
+      receiverSinksRef.current.set(transferId, writer ? { writer } : { chunks: [] });
       updateTransfer(payload.transfer);
       setError("");
     } catch (responseError) {
-      setError(messageForError(responseError));
+      setError(responseError instanceof Error && responseError.message === "save_picker_required"
+        ? "This browser needs its save-file picker for transfers larger than 32 MB. Use a current desktop browser or choose a smaller file."
+        : messageForError(responseError));
     }
   }, [deviceHeaders, updateTransfer]);
 
@@ -362,22 +413,37 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
     peerSessionsRef.current.delete(transferId);
   }, []);
 
-  const fallbackToRelay = useCallback(async (transfer: LanTransfer) => {
+  const failPeerTransfer = useCallback(async (transfer: LanTransfer, message = "Could not establish a direct connection. Keep both devices open and try again.") => {
     closePeerSession(transfer.id);
     peerStartsRef.current.delete(transfer.id);
+    pendingFilesRef.current.delete(transfer.id);
     try {
-      const response = await apiFetch(`/api/lan/transfers/${encodeURIComponent(transfer.id)}/fallback`, {
-        body: JSON.stringify({}),
+      const response = await apiFetch(`/api/lan/transfers/${encodeURIComponent(transfer.id)}/cancel`, {
+        body: JSON.stringify({ failed: true }),
         headers: { "Content-Type": "application/json", ...deviceHeaders() },
         method: "POST",
       });
       const payload = await response.json().catch(() => ({})) as { transfer?: LanTransfer };
-      if (!response.ok || !payload.transfer) throw new Error("relay_fallback_failed");
+      if (!response.ok || !payload.transfer) throw new Error("peer_cancel_failed");
       updateTransfer(payload.transfer);
-      setError("Direct connection was unavailable, so BabyShare is using its encrypted relay.");
+      setError(message);
     } catch {
-      setError("Could not establish a direct connection. Keep both devices open and try again.");
+      setError(message);
     }
+  }, [closePeerSession, deviceHeaders, updateTransfer]);
+
+  const cancelTransfer = useCallback(async (transfer: LanTransfer) => {
+    closePeerSession(transfer.id);
+    pendingFilesRef.current.delete(transfer.id);
+    peerStartsRef.current.delete(transfer.id);
+    const response = await apiFetch(`/api/lan/transfers/${encodeURIComponent(transfer.id)}/cancel`, {
+      body: JSON.stringify({}),
+      headers: { "Content-Type": "application/json", ...deviceHeaders() },
+      method: "POST",
+    });
+    const payload = await response.json().catch(() => ({})) as { transfer?: LanTransfer };
+    if (!response.ok || !payload.transfer) throw new Error("transfer_cancel_failed");
+    updateTransfer(payload.transfer);
   }, [closePeerSession, deviceHeaders, updateTransfer]);
 
   const reportPeerProgress = useCallback(async (session: PeerSession, bytesTransferred: number) => {
@@ -429,9 +495,12 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
     if (signal.type === "offer") {
       const transfer = transfersRef.current.find((item) => item.id === transferId && item.direction === "incoming" && item.peerId === envelope.senderId);
       if (!transfer || (transfer.status !== "accepted" && transfer.status !== "receiving") || session || typeof RTCPeerConnection === "undefined" || !signal.description) return;
-      const pc = new RTCPeerConnection();
+      const sink = receiverSinksRef.current.get(transferId);
+      if (!sink) return;
+      receiverSinksRef.current.delete(transferId);
+      const pc = new RTCPeerConnection(QR_PEER_CONFIG);
       session = {
-        chunks: [],
+        chunks: sink.chunks,
         expectedSize: transfer.size,
         finished: false,
         id: transfer.id,
@@ -441,13 +510,15 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
         receivedBytes: 0,
         role: "recipient",
         transfer,
+        writeChain: Promise.resolve(),
+        writer: sink.writer,
       };
       peerSessionsRef.current.set(transferId, session);
       pc.onicecandidate = (event) => {
-        if (event.candidate) void sendPeerSignal(envelope.senderId, { candidate: event.candidate.toJSON(), sessionId: signal.sessionId, transferId, type: "candidate" }).catch(() => closePeerSession(transferId));
+        if (event.candidate) void sendPeerSignal(envelope.senderId, { candidate: event.candidate.toJSON(), sessionId: signal.sessionId, transferId, type: "candidate" }).catch(() => void failPeerTransfer(session!.transfer));
       };
       pc.onconnectionstatechange = () => {
-        if (["failed", "closed"].includes(pc.connectionState) && !session?.finished) closePeerSession(transferId);
+        if (["failed", "closed"].includes(pc.connectionState) && !session?.finished) void failPeerTransfer(session!.transfer);
       };
       pc.ondatachannel = (event) => {
         const channel = event.channel;
@@ -463,25 +534,33 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
               closePeerSession(transferId);
               return;
             }
-            const receivedFile = new Blob(session!.chunks);
-            peerFilesRef.current.set(transferId, receivedFile);
-            void apiFetch(`/api/lan/transfers/${encodeURIComponent(transferId)}/peer-complete`, {
+            void session!.writeChain.then(async () => {
+              await session!.writer?.close();
+              if (session!.chunks) peerFilesRef.current.set(transferId, new Blob(session!.chunks));
+              const response = await apiFetch(`/api/lan/transfers/${encodeURIComponent(transferId)}/peer-complete`, {
               body: JSON.stringify({}),
               headers: { "Content-Type": "application/json", ...deviceHeaders() },
               method: "POST",
-            }).then(async (response) => {
+              });
               const payload = await response.json().catch(() => ({})) as { transfer?: LanTransfer };
               if (!response.ok || !payload.transfer) throw new Error("peer_complete_failed");
               updateTransfer(payload.transfer);
               session!.finished = true;
               if (session!.timeout) window.clearTimeout(session!.timeout);
               window.setTimeout(() => closePeerSession(transferId), 30_000);
-            }).catch(() => setError("The received file could not be finalized. Please ask the sender to try again."));
+            }).catch(() => void failPeerTransfer(session!.transfer, "The received file could not be saved. Ask the sender to try again."));
             return;
           }
           const chunk = message.data instanceof ArrayBuffer ? message.data : null;
           if (!chunk) return;
-          session!.chunks.push(chunk);
+          if (session!.receivedBytes + chunk.byteLength > session!.expectedSize) {
+            void failPeerTransfer(session!.transfer, "The sender sent more data than expected, so the transfer was cancelled.");
+            return;
+          }
+          session!.writeChain = session!.writeChain.then(async () => {
+            if (session!.writer) await session!.writer.write(chunk);
+            else session!.chunks?.push(chunk);
+          });
           session!.receivedBytes += chunk.byteLength;
           const progress = Math.min(99, Math.round((session!.receivedBytes / session!.expectedSize) * 100));
           updateTransfer({ ...session!.transfer, progress, status: "receiving" });
@@ -519,7 +598,7 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
       else pendingPeerCandidatesRef.current.set(transferId, [...(pendingPeerCandidatesRef.current.get(transferId) || []), { candidate: signal.candidate, senderId: envelope.senderId }]);
     }
     if (signal.type === "hangup") closePeerSession(transferId);
-  }, [closePeerSession, deviceHeaders, sendPeerSignal, updateTransfer]);
+  }, [closePeerSession, deviceHeaders, failPeerTransfer, sendPeerSignal, updateTransfer]);
 
   const pollPeerSignals = useCallback(async () => {
     if (typeof RTCPeerConnection === "undefined") return;
@@ -547,12 +626,11 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
 
   const startPeerTransfer = useCallback(async (transfer: LanTransfer, file: File) => {
     if (typeof RTCPeerConnection === "undefined") {
-      await fallbackToRelay(transfer);
+      await failPeerTransfer(transfer, "This browser does not support direct WebRTC file transfers.");
       return;
     }
-    const pc = new RTCPeerConnection();
+    const pc = new RTCPeerConnection(QR_PEER_CONFIG);
     const session: PeerSession = {
-      chunks: [],
       expectedSize: file.size,
       finished: false,
       id: transfer.id,
@@ -562,6 +640,7 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
       receivedBytes: 0,
       role: "sender",
       transfer,
+      writeChain: Promise.resolve(),
     };
     peerSessionsRef.current.set(transfer.id, session);
     const sessionId = `transfer_${transfer.id.replaceAll("-", "")}`;
@@ -569,14 +648,14 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
     session.channel = channel;
     channel.bufferedAmountLowThreshold = 256 * 1024;
     pc.onicecandidate = (event) => {
-      if (event.candidate) void sendPeerSignal(transfer.peerId, { candidate: event.candidate.toJSON(), sessionId, transferId: transfer.id, type: "candidate" }).catch(() => void fallbackToRelay(transfer));
+      if (event.candidate) void sendPeerSignal(transfer.peerId, { candidate: event.candidate.toJSON(), sessionId, transferId: transfer.id, type: "candidate" }).catch(() => void failPeerTransfer(transfer));
     };
     pc.onconnectionstatechange = () => {
-      if (["failed", "disconnected", "closed"].includes(pc.connectionState) && !session.finished) void fallbackToRelay(transfer);
+      if (["failed", "disconnected", "closed"].includes(pc.connectionState) && !session.finished) void failPeerTransfer(transfer);
     };
     channel.onopen = () => {
       if (session.timeout) window.clearTimeout(session.timeout);
-      void sendPeerFile(session, file).catch(() => void fallbackToRelay(transfer));
+      void sendPeerFile(session, file).catch(() => void failPeerTransfer(transfer));
     };
     try {
       const started = await apiFetch(`/api/lan/transfers/${encodeURIComponent(transfer.id)}/peer-start`, {
@@ -591,12 +670,12 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
       await pc.setLocalDescription(await pc.createOffer());
       await sendPeerSignal(transfer.peerId, { description: pc.localDescription?.toJSON(), sessionId, transferId: transfer.id, type: "offer" });
       session.timeout = window.setTimeout(() => {
-        if (!session.finished) void fallbackToRelay(transfer);
+        if (!session.finished) void failPeerTransfer(transfer);
       }, 12_000);
     } catch {
-      await fallbackToRelay(transfer);
+      await failPeerTransfer(transfer);
     }
-  }, [deviceHeaders, fallbackToRelay, sendPeerFile, sendPeerSignal, updateTransfer]);
+  }, [deviceHeaders, failPeerTransfer, sendPeerFile, sendPeerSignal, updateTransfer]);
 
   useEffect(() => {
     const next = transfers.find((transfer) => transfer.direction === "outgoing"
@@ -611,76 +690,49 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
     void startPeerTransfer(next, file);
   }, [startPeerTransfer, transfers]);
 
-  useEffect(() => {
-    const next = transfers.find((transfer) => transfer.direction === "outgoing"
-      && transfer.transport === "relay"
-      && transfer.status === "accepted"
-      && pendingFilesRef.current.has(transfer.id)
-      && !uploadsInFlightRef.current.has(transfer.id));
-    if (!next) return;
-
-    const file = pendingFilesRef.current.get(next.id);
-    if (!file) return;
-    uploadsInFlightRef.current.add(next.id);
-    const data = new FormData();
-    data.append("file", file);
-    updateTransfer({ ...next, progress: 0, status: "receiving" });
-
-    void uploadFormData<{ transfer: LanTransfer }>(
-      `/api/lan/transfers/${encodeURIComponent(next.id)}/content`,
-      data,
-      (progress) => updateTransfer({ ...next, progress, status: "receiving" }),
-      { headers: deviceHeaders() },
-    ).then((payload) => {
-      pendingFilesRef.current.delete(next.id);
-      updateTransfer(payload.transfer);
-    }).catch(() => {
-      setError("The selected file could not be sent. Keep this page open and try again.");
-    }).finally(() => {
-      uploadsInFlightRef.current.delete(next.id);
-      void refresh();
-    });
-  }, [deviceHeaders, refresh, transfers, updateTransfer]);
-
   const downloadTransfer = useCallback((transfer: LanTransfer) => {
-    if (transfer.transport === "peer") {
-      const file = peerFilesRef.current.get(transfer.id);
-      if (!file) {
-        setError("This direct file is no longer available in this browser. Ask the sender to send it again.");
-        return;
-      }
-      const objectUrl = URL.createObjectURL(file);
-      const link = document.createElement("a");
-      link.href = objectUrl;
-      link.download = transfer.name;
-      document.body.append(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
-      peerFilesRef.current.delete(transfer.id);
-      setTransfers((current) => current.filter((item) => item.id !== transfer.id));
-      void apiFetch(`/api/lan/transfers/${encodeURIComponent(transfer.id)}/peer-consume`, {
-        body: JSON.stringify({}),
-        headers: { "Content-Type": "application/json", ...deviceHeaders() },
-        method: "POST",
-      }).catch(() => setError("The file was saved, but its one-time transfer record could not be cleared."));
+    const file = peerFilesRef.current.get(transfer.id);
+    if (!file) {
+      setError("This file was already saved directly to your device. BabyShare does not keep another copy.");
       return;
     }
-    const params = new URLSearchParams({ deviceId: identity.deviceId, deviceToken: identity.deviceToken });
     const link = document.createElement("a");
-    link.href = apiUrl(`/api/lan/transfers/${encodeURIComponent(transfer.id)}/download?${params.toString()}`);
+    const objectUrl = URL.createObjectURL(file);
+    link.href = objectUrl;
     link.download = transfer.name;
     document.body.append(link);
     link.click();
     link.remove();
-    updateTransfer({ ...transfer, status: "downloading" });
-  }, [deviceHeaders, identity, updateTransfer]);
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
+    peerFilesRef.current.delete(transfer.id);
+  }, []);
+
+  const renameCurrentDevice = useCallback((name: string) => {
+    const cleaned = name.replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 80) || `${identity.platform} device`;
+    localStorage.setItem(DEVICE_NAME_KEY, cleaned);
+    setDeviceName(cleaned);
+  }, [identity.platform]);
+
+  const signOutCurrentDevice = useCallback(() => {
+    localStorage.removeItem(DEVICE_ID_KEY);
+    localStorage.removeItem(DEVICE_TOKEN_KEY);
+    localStorage.removeItem(DEVICE_NAME_KEY);
+    window.location.assign("/");
+  }, []);
+
+  const setDiscoverable = useCallback((value: boolean) => {
+    localStorage.setItem(DISCOVERABLE_KEY, String(value));
+    setDiscoverableState(value);
+  }, []);
 
   return (
     <LanTransferContext.Provider value={{
       acceptTransfer,
       acceptChat,
+      cancelTransfer,
       chats,
+      currentDevice: { id: identity.deviceId, name: deviceName, platform: identity.platform },
+      discoverable,
       declineTransfer,
       devices,
       dismissMessageNotification,
@@ -691,7 +743,10 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
       messageNotifications,
       requestChat,
       requestTransfers,
+      renameCurrentDevice,
       sendChatMessage,
+      setDiscoverable,
+      signOutCurrentDevice,
       transfers,
       unreadChatIds,
     }}>
@@ -709,9 +764,11 @@ export function useLanTransfers() {
 
 function transferStatus(transfer: LanTransfer) {
   if (transfer.status === "pending") return "Waiting for your response";
-  if (transfer.status === "accepted") return transfer.transport === "peer" ? "Accepted — establishing a direct connection" : "Accepted — sender is preparing the file";
-  if (transfer.status === "receiving") return `${transfer.transport === "peer" ? "Receiving directly" : "Receiving"} ${transfer.progress}%`;
-  return transfer.transport === "peer" ? "Ready to save on this device" : "Ready to download once";
+  if (transfer.status === "accepted") return "Accepted — establishing a direct connection";
+  if (transfer.status === "receiving") return `Receiving directly ${transfer.progress}%`;
+  if (transfer.status === "completed") return "Saved directly to this device";
+  if (transfer.status === "cancelled") return "Cancelled";
+  return "Direct connection failed — ask the sender to try again";
 }
 
 export function LanTransferNotifications() {
@@ -719,6 +776,7 @@ export function LanTransferNotifications() {
     acceptChat,
     acceptTransfer,
     chats,
+    cancelTransfer,
     declineTransfer,
     downloadTransfer,
     dismissMessageNotification,
@@ -728,7 +786,7 @@ export function LanTransferNotifications() {
   } = useLanTransfers();
   const incomingChats = chats.filter((chat) => chat.direction === "incoming" && chat.status === "pending").slice(0, 3);
   const incomingTransfers = transfers.filter((transfer) => transfer.direction === "incoming"
-    && ["pending", "accepted", "receiving", "ready"].includes(transfer.status)).slice(0, 3);
+    && ["pending", "accepted", "receiving", "completed"].includes(transfer.status)).slice(0, 3);
   const messageGroups: Array<{ chatId: string; messages: LanMessageNotification[]; peerId: string; peerName: string }> = [];
   messageNotifications.forEach((message) => {
     const group = messageGroups.find((candidate) => candidate.chatId === message.chatId);
@@ -796,7 +854,8 @@ export function LanTransferNotifications() {
               <button type="button" className="lan-decline" onClick={() => void declineTransfer(transfer.id)}>Decline</button>
             </div>
           )}
-          {transfer.status === "ready" && <button type="button" className="lan-accept" onClick={() => downloadTransfer(transfer)}>{transfer.transport === "peer" ? "Save file" : "Download once"}</button>}
+          {transfer.status === "completed" && <button type="button" className="lan-accept" onClick={() => downloadTransfer(transfer)}>Save file</button>}
+          {["accepted", "receiving"].includes(transfer.status) && <button type="button" className="lan-decline" onClick={() => void cancelTransfer(transfer).catch(() => {})}>Cancel transfer</button>}
         </section>
       ))}
     </aside>

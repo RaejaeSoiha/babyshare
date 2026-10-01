@@ -6,6 +6,7 @@ import {
   completeQrPairing,
   QR_PEER_CONFIG,
   readQrPairing,
+  resolveQrPairingCode,
   sendQrSignal,
   takeQrSignals,
 } from "../lib/qrPairing";
@@ -15,8 +16,10 @@ type ReceivedFile = {
   name: string;
   size: number;
   type: string;
-  url: string;
+  url?: string;
 };
+
+const MEMORY_RECEIVE_LIMIT = 32 * 1024 * 1024;
 
 function LightningMark() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.2 1.8 4.6 13h6.1l-.9 9.2L19.4 11h-6.1l-.1-9.2Z" fill="currentColor" /></svg>;
@@ -40,11 +43,15 @@ function pairingError(error: unknown) {
 
 export default function GuestReceive() {
   const [searchParams] = useSearchParams();
-  const pairToken = (searchParams.get("pair") || "").toLowerCase();
+  const queryPairToken = (searchParams.get("pair") || "").toLowerCase();
+  const [pairToken, setPairToken] = useState(/^[a-f0-9]{32}$/u.test(queryPairToken) ? queryPairToken : "");
+  const [manualCode, setManualCode] = useState((searchParams.get("code") || "").replace(/\D/g, "").slice(0, 8));
   const hasValidPairToken = /^[a-f0-9]{32}$/u.test(pairToken);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const chunksRef = useRef<ArrayBuffer[]>([]);
+  const writerRef = useRef<FileSystemWritableFileStream | null>(null);
+  const writeChainRef = useRef<Promise<void>>(Promise.resolve());
   const mimeTypeRef = useRef("application/octet-stream");
   const receivedBytesRef = useRef(0);
   const claimPromiseRef = useRef<Promise<{ pairing: QrPairing; receiverSecret: string }> | null>(null);
@@ -55,7 +62,7 @@ export default function GuestReceive() {
   const [progress, setProgress] = useState(0);
   const [received, setReceived] = useState<ReceivedFile | null>(null);
   const [error, setError] = useState("");
-  const displayedError = hasValidPairToken ? error : "This QR code is invalid. Ask the sender to create a new one.";
+  const displayedError = error;
 
   const closeConnection = useCallback(() => {
     pcRef.current?.close();
@@ -108,21 +115,32 @@ export default function GuestReceive() {
           setError("The received file was incomplete. Ask the sender to try again.");
           return;
         }
-        const receivedFile = new Blob(chunksRef.current, { type: mimeTypeRef.current });
-        const url = URL.createObjectURL(receivedFile);
-        setReceived({ name: pairing.file.name, size: pairing.file.size, type: receivedFile.type, url });
-        setProgress(100);
-        setConnecting(false);
-        void completeQrPairing(activeCredentials).catch(() => {});
+        void writeChainRef.current.then(async () => {
+          await writerRef.current?.close();
+          const receivedFile = writerRef.current ? null : new Blob(chunksRef.current, { type: mimeTypeRef.current });
+          const url = receivedFile ? URL.createObjectURL(receivedFile) : undefined;
+          setReceived({ name: pairing.file.name, size: pairing.file.size, type: receivedFile?.type || mimeTypeRef.current, url });
+          setProgress(100);
+          setConnecting(false);
+          void completeQrPairing(activeCredentials).catch(() => {});
+        }).catch(() => setError("The received file could not be saved. Ask the sender to try again."));
         return;
       }
       const chunk = event.data instanceof ArrayBuffer ? event.data : null;
       if (!chunk || !pairing) return;
-      chunksRef.current.push(chunk);
+      if (receivedBytesRef.current + chunk.byteLength > pairing.file.size) {
+        setError("The sender sent more data than expected, so the transfer was stopped.");
+        closeConnection();
+        return;
+      }
+      writeChainRef.current = writeChainRef.current.then(async () => {
+        if (writerRef.current) await writerRef.current.write(chunk);
+        else chunksRef.current.push(chunk);
+      });
       receivedBytesRef.current += chunk.byteLength;
       setProgress(Math.min(99, Math.round((receivedBytesRef.current / pairing.file.size) * 100)));
     };
-  }, [pairing]);
+  }, [closeConnection, pairing]);
 
   const receiveOffer = useCallback(async (signal: QrSignal, activeCredentials: QrCredentials) => {
     if (!signal.description || pcRef.current) return;
@@ -174,28 +192,50 @@ export default function GuestReceive() {
 
   useEffect(() => () => {
     closeConnection();
-    if (received) URL.revokeObjectURL(received.url);
+    if (received?.url) URL.revokeObjectURL(received.url);
   }, [closeConnection, received]);
 
   const accept = async () => {
-    if (!credentials) return;
+    if (!credentials || !pairing) return;
     setAccepting(true);
     setError("");
     chunksRef.current = [];
+    writerRef.current = null;
+    writeChainRef.current = Promise.resolve();
     receivedBytesRef.current = 0;
     mimeTypeRef.current = "application/octet-stream";
     try {
+      if (window.showSaveFilePicker) {
+        const handle = await window.showSaveFilePicker({ suggestedName: pairing.file.name });
+        writerRef.current = await handle.createWritable();
+      } else if (pairing.file.size > MEMORY_RECEIVE_LIMIT) {
+        throw new Error("save_picker_required");
+      }
       const result = await acceptQrPairing(credentials);
       setPairing(result.pairing);
       setConnecting(true);
     } catch (cause) {
-      setError(pairingError(cause));
+      setError(cause instanceof Error && cause.message === "save_picker_required"
+        ? "This browser needs its save-file picker for transfers larger than 32 MB. Use a current desktop browser or ask the sender to choose a smaller file."
+        : pairingError(cause));
     } finally {
       setAccepting(false);
     }
   };
 
   const previewable = received && /^(image|audio|video)\//u.test(received.type) || received?.type === "application/pdf";
+
+  const submitManualCode = async () => {
+    if (!/^\d{8}$/u.test(manualCode)) return setError("Enter the 8-digit code shown by the sender.");
+    setError("");
+    try {
+      const resolved = await resolveQrPairingCode(manualCode);
+      claimPromiseRef.current = null;
+      setPairToken(resolved.pairToken);
+    } catch (cause) {
+      setError(pairingError(cause));
+    }
+  };
 
   return (
     <div className="page guest-upload-page">
@@ -207,7 +247,8 @@ export default function GuestReceive() {
         <section className="guest-upload-card" aria-labelledby="guest-receive-title">
           <div className="guest-upload-icon"><ShieldIcon /></div>
           <p className="guest-upload-kicker">DIRECT FILE TRANSFER</p>
-          <h1 id="guest-receive-title">{received ? "Your file is ready." : "A file is waiting for you."}</h1>
+          <h1 id="guest-receive-title">{received ? "Your file is ready." : hasValidPairToken ? "A file is waiting for you." : "Enter a pairing code."}</h1>
+          {!hasValidPairToken && !received && <form className="guest-upload-form" onSubmit={(event) => { event.preventDefault(); void submitManualCode(); }}><label className="guest-file-field"><span>8-digit pairing code</span><input inputMode="numeric" autoComplete="one-time-code" value={manualCode} maxLength={8} onChange={(event) => setManualCode(event.target.value.replace(/\D/g, "").slice(0, 8))} placeholder="12345678" /></label><button type="submit" className="guest-upload-submit">Connect</button></form>}
           {pairing && !received && <p className="guest-upload-copy"><strong>{pairing.file.name}</strong><br />{formatFileSize(pairing.file.size)} · The sender keeps the file on their device until you approve.</p>}
           {!pairing && !displayedError && <p className="guest-upload-copy">Opening the secure direct transfer…</p>}
 
@@ -222,10 +263,10 @@ export default function GuestReceive() {
             <div className="guest-success-icon"><ShieldIcon /></div>
             <p className="guest-upload-kicker">DIRECT TRANSFER COMPLETE</p>
             <h1>{received.name}</h1>
-            <p>{formatFileSize(received.size)} received directly in this browser.</p>
+            <p>{formatFileSize(received.size)} {received.url ? "received directly in this browser." : "was saved directly to your device."}</p>
             <div className="guest-success-actions">
-              {previewable && <a href={received.url} target="_blank" rel="noreferrer">Preview file</a>}
-              <a href={received.url} download={received.name}>Download file</a>
+               {previewable && received.url && <a href={received.url} target="_blank" rel="noreferrer">Preview file</a>}
+               {received.url && <a href={received.url} download={received.name}>Download file</a>}
             </div>
           </div>}
           {displayedError && <p className="guest-upload-error" role="alert">{displayedError}</p>}

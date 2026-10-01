@@ -45,6 +45,7 @@ export default function GuestUpload() {
   const [pairing, setPairing] = useState<QrPairing | null>(null);
   const [credentials, setCredentials] = useState<QrCredentials | null>(null);
   const [qrImage, setQrImage] = useState("");
+  const [shortCode, setShortCode] = useState("");
   const [creating, setCreating] = useState(false);
   const [transferState, setTransferState] = useState<"waiting" | "connecting" | "sending" | "complete">("waiting");
   const [progress, setProgress] = useState(0);
@@ -182,6 +183,7 @@ export default function GuestUpload() {
       setCredentials({ pairToken: created.pairToken, role: "sender", secret: created.senderSecret });
       setPairing({ expiresAt: created.expiresAt, file: { name: file.name, size: file.size }, status: "waiting" });
       setQrImage(image);
+      setShortCode(created.shortCode);
       setTransferState("waiting");
     } catch (cause) {
       setError(directTransferError(cause));
@@ -197,6 +199,7 @@ export default function GuestUpload() {
     setPairing(null);
     setCredentials(null);
     setQrImage("");
+    setShortCode("");
     setProgress(0);
     setError("");
     setTransferState("waiting");
@@ -232,7 +235,7 @@ export default function GuestUpload() {
               <p className="guest-upload-kicker">{transferState === "complete" ? "TRANSFER COMPLETE" : "SCAN TO CONNECT"}</p>
               <h1>{transferState === "complete" ? "File sent directly." : transferState === "sending" ? `Sending ${progress}%` : "Scan this QR code."}</h1>
               {transferState === "complete" ? <p>The recipient now has the file in their browser. It was never uploaded to BabyShare.</p> : <p>{waitingCopy}</p>}
-              {transferState !== "complete" && qrImage && <img className="guest-qr-image" src={qrImage} alt="QR code for the recipient to open this direct transfer" />}
+              {transferState !== "complete" && qrImage && <><img className="guest-qr-image" src={qrImage} alt="QR code for the recipient to open this direct transfer" /><p className="guest-pair-code">Or enter code <strong>{shortCode}</strong> on the receiving device.</p></>}
               {transferState === "sending" && <div className="guest-upload-progress"><progress value={progress} max="100" /><span>{progress}%</span></div>}
               <button type="button" className="guest-upload-another" onClick={startAnother}>{transferState === "complete" ? "Send another file" : "Cancel and choose another file"}</button>
             </div>

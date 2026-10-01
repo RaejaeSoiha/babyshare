@@ -32,22 +32,17 @@ const {
   validateRuntimeConfig,
   WEBRTC_SIGNALING_ENABLED,
 } = require("./config");
-const { loadUsers, loadShares, saveUsers, saveShares } = require("./data/store");
-const { decryptFile, encryptFile, ensureDir } = require("./services/storage");
+const { loadUsers, saveUsers } = require("./data/store");
 const { LanTransferService } = require("./services/lanTransfers");
 const { startLanDiscovery } = require("./services/lanDiscovery");
-const { renderError, renderGuestAccess, renderPasswordPrompt } = require("./utils/html");
+const { renderError } = require("./utils/html");
 const { getPreferredLanIp, getShareBaseUrl } = require("./utils/network");
 const {
   createRateLimiter,
   hasOwn,
-  isExpired,
-  resolveWithin,
 } = require("./utils/security");
 
 const registerAuthRoutes = require("./routes/auth");
-const registerFileRoutes = require("./routes/files");
-const registerGuestRoutes = require("./routes/guest");
 const registerAdminRoutes = require("./routes/admin");
 const registerApiRoutes = require("./routes/api");
 const registerLanRoutes = require("./routes/lan");
@@ -129,15 +124,6 @@ function createSameOriginGuard(allowedOrigins) {
   };
 }
 
-function clearInterruptedTemporaryUploads(directory) {
-  // Multer writes an incoming file before it can be encrypted. An interrupted
-  // process must not leave those plaintext fragments on disk after restart.
-  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-    if (!entry.isFile() && !entry.isSymbolicLink()) continue;
-    fs.unlinkSync(path.join(directory, entry.name));
-  }
-}
-
 function createApp() {
   validateRuntimeConfig();
   const app = express();
@@ -174,7 +160,7 @@ function createApp() {
   app.use(express.json({ limit: "64kb" }));
 
   const sessionDirectory = path.join(DATA_DIR, "sessions");
-  ensureDir(sessionDirectory);
+  fs.mkdirSync(sessionDirectory, { recursive: true });
   app.use(
     session({
       cookie: {
@@ -192,9 +178,6 @@ function createApp() {
   );
 
   const USERS = loadUsers();
-  const SHARES = loadShares();
-  if (!SHARES.users || typeof SHARES.users !== "object") SHARES.users = {};
-  if (!SHARES.guests || typeof SHARES.guests !== "object") SHARES.guests = {};
 
   // Existing plaintext records are upgraded before requests can authenticate.
   for (const [username, password] of Object.entries(USERS)) {
@@ -208,24 +191,7 @@ function createApp() {
     saveUsers(USERS);
   }
 
-  const rawKey = process.env.FILE_KEY || "development-only-file-key";
-  const SECRET_KEY = crypto.createHash("sha256").update(rawKey).digest();
-  const UPLOADS_USERS = path.join(DATA_DIR, "uploads", "users");
-  const UPLOADS_GUESTS = path.join(DATA_DIR, "uploads", "guests");
-  const UPLOADS_TMP = path.join(DATA_DIR, "uploads", "tmp");
-  const UPLOADS_LAN = path.join(DATA_DIR, "uploads", "lan");
-  const LAN_TRANSFER_TMP = path.join(DATA_DIR, "uploads", "lan-tmp");
-  ensureDir(UPLOADS_USERS);
-  ensureDir(UPLOADS_GUESTS);
-  ensureDir(UPLOADS_TMP);
-  ensureDir(UPLOADS_LAN);
-  ensureDir(LAN_TRANSFER_TMP);
-  clearInterruptedTemporaryUploads(UPLOADS_TMP);
-  clearInterruptedTemporaryUploads(LAN_TRANSFER_TMP);
-  const LAN_TRANSFERS = new LanTransferService({
-    defaultTransport: WEBRTC_SIGNALING_ENABLED ? "peer" : "relay",
-    uploadDirectory: UPLOADS_LAN,
-  });
+  const LAN_TRANSFERS = new LanTransferService();
 
   function appRedirect(res, redirectPath) {
     const base = FRONTEND_BASE_URL.replace(/\/+$/, "");
@@ -243,85 +209,7 @@ function createApp() {
     return res.status(403).json({ error: "forbidden" });
   }
 
-  function getUserFileMeta(username, filename) {
-    if (!hasOwn(USERS, username) || typeof filename !== "string") return null;
-    const entries = Array.isArray(SHARES.users[username]) ? SHARES.users[username] : [];
-    return entries.find((item) => item && item.file === filename) || null;
-  }
-
-  function getUserFilePath(username, filename) {
-    if (!getUserFileMeta(username, filename)) return null;
-    return resolveWithin(UPLOADS_USERS, username, filename);
-  }
-
-  function mapUserFiles(username) {
-    const entries = Array.isArray(SHARES.users[username]) ? SHARES.users[username] : [];
-    return entries
-      .filter((item) => item && !isExpired(item) && getUserFilePath(username, item.file) && fs.existsSync(getUserFilePath(username, item.file)))
-      .map((item) => ({
-        expires: item.expires || null,
-        file: item.file,
-        label: item.label || "",
-        original: item.original,
-        passwordProtected: Boolean(item.hash),
-        uploaded: item.uploaded || null,
-      }));
-  }
-
-  function removeUserShare(username, filename) {
-    const entries = Array.isArray(SHARES.users[username]) ? SHARES.users[username] : [];
-    SHARES.users[username] = entries.filter((item) => item && item.file !== filename);
-    saveShares(SHARES);
-  }
-
   function cleanup() {
-    const now = Date.now();
-    let changed = false;
-
-    for (const [token, share] of Object.entries(SHARES.guests)) {
-      const filePath = share && resolveWithin(UPLOADS_GUESTS, share.filename || "");
-      if (!share || isExpired(share, now) || !filePath || !fs.existsSync(filePath)) {
-        if (filePath && fs.existsSync(filePath)) {
-          try {
-            fs.unlinkSync(filePath);
-            const directory = path.dirname(filePath);
-            if (directory !== UPLOADS_GUESTS && fs.existsSync(directory) && fs.readdirSync(directory).length === 0) {
-              fs.rmdirSync(directory);
-            }
-          } catch {
-            // A future cleanup pass can retry a transient filesystem failure.
-          }
-        }
-        delete SHARES.guests[token];
-        changed = true;
-      }
-    }
-
-    for (const [username, entries] of Object.entries(SHARES.users)) {
-      if (!Array.isArray(entries)) {
-        SHARES.users[username] = [];
-        changed = true;
-        continue;
-      }
-      const active = entries.filter((file) => {
-        if (!file || isExpired(file, now)) {
-          const filePath = file && resolveWithin(UPLOADS_USERS, username, file.file || "");
-          if (filePath && fs.existsSync(filePath)) {
-            try {
-              fs.unlinkSync(filePath);
-            } catch {
-              return true;
-            }
-          }
-          changed = true;
-          return false;
-        }
-        return true;
-      });
-      SHARES.users[username] = active;
-    }
-
-    if (changed) saveShares(SHARES);
     LAN_TRANSFERS.cleanup();
   }
 
@@ -334,14 +222,12 @@ function createApp() {
   // transfer also polls for short-lived negotiation signals. Keep this limit
   // comfortably above normal usage while still constraining each device.
   const lanLimiter = createRateLimiter({ key: lanRateLimitKey, windowMs: 60 * 1000, max: 600 });
-  const uploadLimiter = createRateLimiter({ windowMs: 60 * 60 * 1000, max: 30 });
-  const passwordLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 10 });
 
   if (HAS_DIST) app.use(express.static(DIST_DIR, { index: false, maxAge: IS_PRODUCTION ? "1h" : 0 }));
 
   app.get("/healthz", (_req, res) => res.status(200).json({ status: "ok" }));
   app.get("/", (req, res) => {
-    if (req.session.user) return res.redirect("/dashboard");
+    if (req.session.user && hasOwn(USERS, req.session.user)) return res.redirect("/dashboard");
     if (HAS_DIST) return res.sendFile(path.join(DIST_DIR, "index.html"));
     return res.status(500).send("Frontend build missing. Run: npm run build");
   });
@@ -351,52 +237,31 @@ function createApp() {
     FRONTEND_BASE_URL,
     HAS_DIST,
     LAN_TRANSFERS,
-    LAN_TRANSFER_TMP,
-    SECRET_KEY,
-    SHARES,
-    UPLOADS_GUESTS,
-    UPLOADS_TMP,
-    UPLOADS_USERS,
     USERS,
     WEBRTC_SIGNALING_ENABLED,
     appRedirect,
-    decryptFile,
-    encryptFile,
-    getShareBaseUrl,
-    getUserFileMeta,
-    getUserFilePath,
-    isExpired,
     lanLimiter,
     loginLimiter,
-    mapUserFiles,
-    passwordLimiter,
-    removeUserShare,
     renderError,
-    renderGuestAccess,
-    renderPasswordPrompt,
     requireAdmin,
     requireLogin,
-    resolveWithin,
-    saveShares,
     saveUsers,
-    uploadLimiter,
   };
 
   app.use(createSameOriginGuard(allowedOrigins));
   registerApiRoutes(app, sharedDependencies);
   registerLanRoutes(app, sharedDependencies);
   registerAuthRoutes(app, sharedDependencies);
-  registerFileRoutes(app, sharedDependencies);
-  registerGuestRoutes(app, sharedDependencies);
   registerAdminRoutes(app, sharedDependencies);
 
+  // Legacy upload URLs remain explicit about the privacy model instead of
+  // accepting multipart data. Direct WebRTC flows use /api/lan or /api/qr.
+  app.post(["/upload", "/guest-upload"], (_req, res) => res.status(409).json({ error: "direct_connection_required" }));
+
   app.use((error, req, res, _next) => {
-    const multerError = error && error.name === "MulterError";
-    const status = multerError && error.code === "LIMIT_FILE_SIZE" ? 413 : 400;
-    const payload = multerError && error.code === "LIMIT_FILE_SIZE" ? "file_too_large" : "invalid_request";
     if (res.headersSent) return;
-    if (wantsJson(req)) return res.status(status).json({ error: payload });
-    return res.status(status).send(payload);
+    if (wantsJson(req)) return res.status(400).json({ error: "invalid_request" });
+    return res.status(400).send("invalid_request");
   });
 
   if (HAS_DIST) {
