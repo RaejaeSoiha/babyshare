@@ -4505,6 +4505,7 @@ a {
 }
 
 .workspace-chat-dock {
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   width: min(350px, calc(100vw - 40px));
@@ -4751,6 +4752,7 @@ a {
 
 .workspace-chat-thread {
   display: grid;
+  min-width: 0;
   min-height: 0;
   gap: 10px;
   padding: 12px;
@@ -4758,6 +4760,7 @@ a {
 
 .workspace-chat-messages {
   display: grid;
+  min-width: 0;
   max-height: 330px;
   gap: 7px;
   overflow-y: auto;
@@ -4788,6 +4791,8 @@ a {
 
 .workspace-chat-compose {
   display: flex;
+  min-width: 0;
+  max-width: 100%;
   gap: 7px;
 }
 
@@ -4891,10 +4896,10 @@ a {
   }
 
   .workspace-chat-dock {
-    right: 12px;
+    right: auto;
     bottom: max(12px, env(safe-area-inset-bottom));
     left: 12px;
-    width: auto;
+    width: calc(100% - 24px);
     max-height: min(520px, calc(100dvh - 24px));
     overflow-y: auto;
     border-radius: 16px;

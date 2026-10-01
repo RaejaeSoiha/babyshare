@@ -43,6 +43,7 @@ export default function WorkspaceChatDock() {
   const [error, setError] = useState("");
   const [dockPosition, setDockPosition] = useState<{ left: number; top: number } | null>(null);
   const [isCompactViewport, setIsCompactViewport] = useState(() => typeof window !== "undefined" && window.innerWidth <= 680);
+  const [mobileDock, setMobileDock] = useState<{ bottom: number; height: number; left: number; width: number } | null>(null);
   const dockDragRef = useRef<{ height: number; left: number; offsetX: number; offsetY: number; pointerId: number; top: number; width: number } | null>(null);
   const {
     chats,
@@ -66,10 +67,36 @@ export default function WorkspaceChatDock() {
   }, []);
 
   useEffect(() => {
-    const updateViewport = () => setIsCompactViewport(window.innerWidth <= 680);
+    const updateViewport = () => {
+      const visualViewport = window.visualViewport;
+      const viewportWidth = visualViewport?.width ?? window.innerWidth;
+      setIsCompactViewport(viewportWidth <= 680);
+      if (!visualViewport) {
+        setMobileDock(null);
+        return;
+      }
+
+      // On iPhone, a fixed element is positioned against the layout viewport
+      // while the keyboard only shrinks the visual viewport. Measure both so
+      // the dock stays above the keyboard and within the visible width.
+      const layoutHeight = Math.max(window.innerHeight, document.documentElement.clientHeight);
+      const hiddenBelowViewport = Math.max(0, layoutHeight - visualViewport.height - visualViewport.offsetTop);
+      setMobileDock({
+        bottom: Math.round(hiddenBelowViewport + 12),
+        height: Math.round(Math.min(520, Math.max(160, visualViewport.height - 24))),
+        left: Math.round(visualViewport.offsetLeft + 12),
+        width: Math.round(Math.max(0, visualViewport.width - 24)),
+      });
+    };
     updateViewport();
     window.addEventListener("resize", updateViewport);
-    return () => window.removeEventListener("resize", updateViewport);
+    window.visualViewport?.addEventListener("resize", updateViewport);
+    window.visualViewport?.addEventListener("scroll", updateViewport);
+    return () => {
+      window.removeEventListener("resize", updateViewport);
+      window.visualViewport?.removeEventListener("resize", updateViewport);
+      window.visualViewport?.removeEventListener("scroll", updateViewport);
+    };
   }, []);
 
   // Start each workspace page with the dock minimized. A user can still open
@@ -236,9 +263,17 @@ export default function WorkspaceChatDock() {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
-  const dockStyle = dockPosition && !isCompactViewport
-    ? { bottom: "auto", left: dockPosition.left, right: "auto", top: dockPosition.top, transform: "none" }
-    : undefined;
+  const dockStyle = isCompactViewport && mobileDock
+    ? {
+      bottom: `calc(env(safe-area-inset-bottom) + ${mobileDock.bottom}px)`,
+      left: mobileDock.left,
+      maxHeight: mobileDock.height,
+      right: "auto",
+      width: mobileDock.width,
+    }
+    : dockPosition
+      ? { bottom: "auto", left: dockPosition.left, right: "auto", top: dockPosition.top, transform: "none" }
+      : undefined;
 
   return isOpen ? (
     <aside className="workspace-chat-dock" style={dockStyle} aria-label="Nearby Users chat">
