@@ -78,6 +78,12 @@ function randomHex(byteLength) {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+function randomPairingCode() {
+  // A short code is only a convenience lookup and expires in ten minutes, but
+  // it must still be unpredictable rather than derived from Math.random().
+  return String(10_000_000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 90_000_000));
+}
+
 function constantTimeEquals(left, right) {
   if (left.length !== right.length) return false;
   let difference = 0;
@@ -359,7 +365,7 @@ async function proxyQrPairing(request, env, url) {
     const expiresAt = Date.now() + QR_PAIR_TTL_MS;
     let shortCode = "";
     for (let attempt = 0; attempt < 4 && !shortCode; attempt += 1) {
-      const candidate = String(Math.floor(10_000_000 + Math.random() * 90_000_000));
+      const candidate = randomPairingCode();
       const inserted = await env.DB.prepare("INSERT OR IGNORE INTO qr_pair_codes (code, pair_token, expires_at, created_at) VALUES (?, ?, ?, ?)")
         .bind(candidate, pairToken, expiresAt, Date.now()).run();
       if (inserted.meta.changes) shortCode = candidate;
