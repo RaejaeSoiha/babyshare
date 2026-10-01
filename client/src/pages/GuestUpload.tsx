@@ -1,17 +1,8 @@
-import { useState } from "react";
-import { apiUrl, uploadFormData } from "../lib/api";
+import { useRef, useState } from "react";
+import type { FormEvent } from "react";
+import { useLanTransfers } from "../components/LanTransfers";
 
-type UploadResult = {
-  downloadPath?: string;
-  expires: number;
-  label: string;
-  link: string;
-  passwordRequired: boolean;
-  previewPath?: string;
-  qrCode: string;
-};
-
-type SelectedFile = { name: string; size: number };
+const MAX_FILE_SIZE = 1024 * 1024 * 1024;
 
 function LightningMark() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.2 1.8 4.6 13h6.1l-.9 9.2L19.4 11h-6.1l-.1-9.2Z" fill="currentColor" /></svg>;
@@ -32,56 +23,48 @@ function formatFileSize(bytes: number) {
 }
 
 export default function GuestUpload() {
-  const [result, setResult] = useState<UploadResult | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { devices, error: nearbyError, requestTransfers, transfers } = useLanTransfers();
+  const [file, setFile] = useState<File | null>(null);
+  const [recipientId, setRecipientId] = useState("");
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
-  const [linkCopied, setLinkCopied] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [requested, setRequested] = useState(false);
 
-  const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+  const activeTransfer = transfers.find((transfer) => transfer.direction === "outgoing" && transfer.peerId === recipientId);
+
+  const requestTransfer = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
-    setLoading(true);
-    setProgress(0);
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    const file = data.get("file");
-    if (file instanceof File && file.size > 1024 * 1024 * 1024) {
-      setError("The file must be 1 GB or smaller.");
-      setLoading(false);
+    if (!file) {
+      setError("Choose one file to send.");
       return;
     }
-
-    try {
-      const upload = await uploadFormData<UploadResult>("/guest-upload", data, setProgress);
-      setResult(upload);
-      setSelectedFile(null);
-      form.reset();
-    } catch (uploadError) {
-      setError(uploadError instanceof Error && uploadError.message === "file_too_large"
-        ? "The file must be 1 GB or smaller."
-        : "Upload failed. Please try again.");
-    } finally {
-      setLoading(false);
+    if (file.size > MAX_FILE_SIZE) {
+      setError("The file must be 1 GB or smaller.");
+      return;
     }
-  };
-
-  const copyLink = async () => {
-    if (!result) return;
+    if (!recipientId) {
+      setError("Choose a nearby recipient first.");
+      return;
+    }
+    setSending(true);
     try {
-      await navigator.clipboard.writeText(result.link);
-      setLinkCopied(true);
+      await requestTransfers(recipientId, [file]);
+      setRequested(true);
     } catch {
-      setError("Could not copy the link. Please copy it from the share page.");
+      setError("The recipient is no longer available. Keep both devices open and try again.");
+    } finally {
+      setSending(false);
     }
   };
 
-  const uploadAnother = () => {
+  const startAnother = () => {
+    setFile(null);
+    setRecipientId("");
     setError("");
-    setLinkCopied(false);
-    setProgress(0);
-    setResult(null);
+    setRequested(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   return (
@@ -95,63 +78,51 @@ export default function GuestUpload() {
       </header>
 
       <main className="guest-upload-shell">
-        {!result ? (
-          <section className="guest-upload-card" aria-labelledby="guest-upload-title">
-            <div className="guest-upload-icon"><UploadIcon /></div>
-            <p className="guest-upload-kicker">ADVANCED UPLOAD</p>
-            <h1 id="guest-upload-title">Share with more control.</h1>
-            <p className="guest-upload-copy">Add a label or password before creating a private share link.</p>
+        <section className="guest-upload-card" aria-labelledby="guest-upload-title">
+          <div className="guest-upload-icon"><UploadIcon /></div>
+          <p className="guest-upload-kicker">DIRECT GUEST TRANSFER</p>
+          <h1 id="guest-upload-title">Send privately, without an upload.</h1>
+          <p className="guest-upload-copy">Choose a nearby recipient. They must approve before the file moves directly between your browsers.</p>
 
-            <form className="guest-upload-form" onSubmit={onSubmit}>
+          {!requested ? (
+            <form className="guest-upload-form" onSubmit={requestTransfer}>
               <label className="guest-file-field">
                 <span>Select file</span>
-                <input type="file" name="file" required onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  setSelectedFile(file ? { name: file.name, size: file.size } : null);
+                <input ref={fileInputRef} type="file" required onChange={(event) => {
+                  setFile(event.target.files?.[0] || null);
+                  setError("");
                 }} />
               </label>
-              {selectedFile && <p className="guest-selected-file" aria-live="polite"><strong>{selectedFile.name}</strong><span>{formatFileSize(selectedFile.size)}</span></p>}
+              {file && <p className="guest-selected-file" aria-live="polite"><strong>{file.name}</strong><span>{formatFileSize(file.size)}</span></p>}
               <label>
-                <span>Label <em>optional</em></span>
-                <input name="label" maxLength={120} placeholder="e.g. Project brief" />
+                <span>Nearby recipient</span>
+                <select value={recipientId} onChange={(event) => setRecipientId(event.target.value)} required>
+                  <option value="">Choose a recipient</option>
+                  {devices.map((device) => <option key={device.id} value={device.id}>{device.displayName} · {device.platform}</option>)}
+                </select>
               </label>
-              <label>
-                <span>Password <em>optional</em></span>
-                <input type="password" name="password" minLength={4} maxLength={128} placeholder="4+ characters" autoComplete="new-password" />
-              </label>
-              <button type="submit" className="guest-upload-submit" disabled={loading}>
-                {loading ? `Uploading ${progress}%` : "Create share link"}
+              {devices.length === 0 && <p className="guest-upload-notes">No nearby recipients are online yet. Ask them to open BabyShare on the same network.</p>}
+              <button type="submit" className="guest-upload-submit" disabled={sending || devices.length === 0}>
+                {sending ? "Sending request…" : "Request direct transfer"}
               </button>
             </form>
-
-            {loading && <div className="guest-upload-progress" aria-live="polite"><progress max="100" value={progress} /><span>{progress}%</span></div>}
-            {error && <p className="guest-upload-error" role="alert">{error}</p>}
-
-            <div className="guest-upload-notes" aria-label="Guest upload details">
-              <span>1 file · up to 1 GB</span>
-              <span><ShieldIcon />Password protection available</span>
+          ) : (
+            <div className="guest-success-card" aria-live="polite">
+              <div className="guest-success-icon"><ShieldIcon /></div>
+              <p className="guest-upload-kicker">TRANSFER REQUEST SENT</p>
+              <h1>Waiting for approval.</h1>
+              <p>Keep this page open. The file stays on your device until the recipient accepts.</p>
+              {activeTransfer && <p className="guest-upload-notes">{activeTransfer.status === "pending" ? "Waiting for the recipient." : activeTransfer.status === "receiving" ? `Sending ${activeTransfer.progress}%` : "Direct connection is being prepared."}</p>}
+              <button type="button" className="guest-upload-another" onClick={startAnother}>Send another file</button>
             </div>
-          </section>
-        ) : (
-          <section className="guest-success-card" aria-live="polite" aria-labelledby="guest-success-title">
-            <div className="guest-success-icon"><ShieldIcon /></div>
-            <p className="guest-upload-kicker">SHARE LINK READY</p>
-            <h1 id="guest-success-title">File uploaded successfully</h1>
-            <p>{result.passwordRequired ? "Your share is password protected." : "Your private share link is ready."}</p>
-            <div className="guest-success-actions">
-              <button type="button" className="guest-copy-link" onClick={() => void copyLink()}>{linkCopied ? "Link copied" : "Copy link"}</button>
-              <a href={result.link} target="_blank" rel="noreferrer">Open share page</a>
-              <a href={apiUrl(result.downloadPath || result.link)} target="_blank" rel="noreferrer">Download</a>
-              <button type="button" className="guest-upload-another" onClick={uploadAnother}>Upload another file</button>
-            </div>
-            <details className="guest-qr-details">
-              <summary>Show QR code</summary>
-              {result.passwordRequired && <p>On a phone, scan, open the link, then enter the password to preview or download.</p>}
-              <img src={result.qrCode} alt={result.passwordRequired ? "QR code for the password-protected shared file" : "QR code to download the shared file"} />
-            </details>
-            {error && <p className="guest-upload-error" role="alert">{error}</p>}
-          </section>
-        )}
+          )}
+
+          {(error || nearbyError) && <p className="guest-upload-error" role="alert">{error || nearbyError}</p>}
+          <div className="guest-upload-notes" aria-label="Direct guest transfer details">
+            <span>1 file · up to 1 GB</span>
+            <span><ShieldIcon />Recipient approval required</span>
+          </div>
+        </section>
       </main>
     </div>
   );

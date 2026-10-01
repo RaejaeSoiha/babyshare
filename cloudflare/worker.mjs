@@ -575,7 +575,6 @@ export default {
       }
       if (
         url.pathname === "/upload"
-        || url.pathname === "/guest-upload"
         || url.pathname === "/guest-view"
         || url.pathname === "/guest-download"
         || url.pathname === "/guest-login"
@@ -590,6 +589,7 @@ export default {
       }
       if (url.pathname === "/login") return request.method === "POST" ? handleLogin(request, env) : serveSpa(request, env);
       if (url.pathname === "/register") return request.method === "POST" ? handleRegister(request, env) : serveSpa(request, env);
+      if (url.pathname === "/guest-upload") return request.method === "GET" ? serveSpa(request, env) : peerOnly(request);
       if (url.pathname === "/logout" && request.method === "POST") {
         const session = await currentSession(request, env);
         if (session) await env.DB.prepare("DELETE FROM sessions WHERE id = ?").bind(session.id).run();

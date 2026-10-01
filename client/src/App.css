@@ -854,7 +854,8 @@ a {
   font-weight: 600;
 }
 
-.guest-upload-form input {
+.guest-upload-form input,
+.guest-upload-form select {
   width: 100%;
   min-height: 45px;
   padding: 0 13px;
@@ -871,7 +872,8 @@ a {
   color: #66829e;
 }
 
-.guest-upload-form input:focus {
+.guest-upload-form input:focus,
+.guest-upload-form select:focus {
   border-color: rgba(94, 212, 255, 0.72);
   background: rgba(5, 29, 53, 0.8);
   box-shadow: 0 0 0 3px rgba(65, 192, 247, 0.13);
