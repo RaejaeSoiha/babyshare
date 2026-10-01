@@ -81,7 +81,7 @@ function randomHex(byteLength) {
 function randomPairingCode() {
   // A short code is only a convenience lookup and expires in ten minutes, but
   // it must still be unpredictable rather than derived from Math.random().
-  return String(10_000_000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 90_000_000));
+  return String(1_000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 9_000));
 }
 
 function constantTimeEquals(left, right) {
@@ -352,7 +352,7 @@ async function proxyLan(request, env, session) {
 async function proxyQrPairing(request, env, url) {
   if (!env.QR_HUB) return json({ error: "qr_not_configured" }, { status: 503 });
   await ensureQrCodeSchema(env);
-  const codeMatch = /^\/api\/qr\/pairings\/by-code\/(\d{8})$/u.exec(url.pathname);
+  const codeMatch = /^\/api\/qr\/pairings\/by-code\/(\d{4})$/u.exec(url.pathname);
   if (codeMatch && request.method === "GET") {
     const pair = await env.DB.prepare("SELECT pair_token FROM qr_pair_codes WHERE code = ? AND expires_at > ?").bind(codeMatch[1], Date.now()).first();
     return pair ? json({ pairToken: String(pair.pair_token) }) : json({ error: "pairing_expired" }, { status: 404 });

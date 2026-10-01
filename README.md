@@ -30,8 +30,8 @@ in-memory fallback; larger receives require the native save-file picker.
 5. Keep both pages open while the WebRTC transfer completes. Either person can
    cancel; failures remain metadata only and can be retried.
 
-For someone without an account, use **Send with QR pairing**. They can scan the
-code or enter the displayed eight-digit pairing code at `/guest-receive`.
+For someone without an account, create a guest QR transfer. They can scan the
+code or enter the displayed four-digit pairing code at `/guest-receive`.
 
 ## Local development
 

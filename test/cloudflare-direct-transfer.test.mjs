@@ -17,5 +17,7 @@ test("Cloudflare Worker exposes direct-only upload routes and no file storage bi
 test("QR pairing uses metadata lookup only for short codes", () => {
   assert.match(worker, /INSERT OR IGNORE INTO qr_pair_codes/);
   assert.match(worker, /SELECT pair_token FROM qr_pair_codes/);
+  assert.match(worker, /return String\(1_000 \+ \(crypto\.getRandomValues\(new Uint32Array\(1\)\)\[0\] % 9_000\)\)/);
+  assert.match(worker, /pairings\\\/by-code\\\/\(\\d\{4\}\)/);
   assert.match(worker, /Durable Object relays metadata and ICE\/SDP messages only/);
 });

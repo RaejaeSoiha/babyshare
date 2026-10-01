@@ -45,7 +45,7 @@ export default function GuestReceive() {
   const [searchParams] = useSearchParams();
   const queryPairToken = (searchParams.get("pair") || "").toLowerCase();
   const [pairToken, setPairToken] = useState(/^[a-f0-9]{32}$/u.test(queryPairToken) ? queryPairToken : "");
-  const [manualCode, setManualCode] = useState((searchParams.get("code") || "").replace(/\D/g, "").slice(0, 8));
+  const [manualCode, setManualCode] = useState((searchParams.get("code") || "").replace(/\D/g, "").slice(0, 4));
   const hasValidPairToken = /^[a-f0-9]{32}$/u.test(pairToken);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
@@ -226,7 +226,7 @@ export default function GuestReceive() {
   const previewable = received && /^(image|audio|video)\//u.test(received.type) || received?.type === "application/pdf";
 
   const submitManualCode = async () => {
-    if (!/^\d{8}$/u.test(manualCode)) return setError("Enter the 8-digit code shown by the sender.");
+    if (!/^\d{4}$/u.test(manualCode)) return setError("Enter the 4-digit code shown by the sender.");
     setError("");
     try {
       const resolved = await resolveQrPairingCode(manualCode);
@@ -248,7 +248,7 @@ export default function GuestReceive() {
           <div className="guest-upload-icon"><ShieldIcon /></div>
           <p className="guest-upload-kicker">DIRECT FILE TRANSFER</p>
           <h1 id="guest-receive-title">{received ? "Your file is ready." : hasValidPairToken ? "A file is waiting for you." : "Enter a pairing code."}</h1>
-          {!hasValidPairToken && !received && <form className="guest-upload-form" onSubmit={(event) => { event.preventDefault(); void submitManualCode(); }}><label className="guest-file-field"><span>8-digit pairing code</span><input inputMode="numeric" autoComplete="one-time-code" value={manualCode} maxLength={8} onChange={(event) => setManualCode(event.target.value.replace(/\D/g, "").slice(0, 8))} placeholder="12345678" /></label><button type="submit" className="guest-upload-submit">Connect</button></form>}
+          {!hasValidPairToken && !received && <form className="guest-upload-form" onSubmit={(event) => { event.preventDefault(); void submitManualCode(); }}><label className="guest-file-field"><span>4-digit pairing code</span><input inputMode="numeric" autoComplete="one-time-code" value={manualCode} maxLength={4} onChange={(event) => setManualCode(event.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="1234" /></label><button type="submit" className="guest-upload-submit">Connect</button></form>}
           {pairing && !received && <p className="guest-upload-copy"><strong>{pairing.file.name}</strong><br />{formatFileSize(pairing.file.size)} · The sender keeps the file on their device until you approve.</p>}
           {!pairing && !displayedError && <p className="guest-upload-copy">Opening the secure direct transfer…</p>}
 
