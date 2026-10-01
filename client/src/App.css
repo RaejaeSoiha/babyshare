@@ -4534,6 +4534,23 @@ a {
   font-weight: 750;
 }
 
+.workspace-chat-launcher > span {
+  display: grid;
+  gap: 1px;
+  text-align: left;
+}
+
+.workspace-chat-launcher strong {
+  color: inherit;
+  font: inherit;
+}
+
+.workspace-chat-launcher small {
+  color: #82d7a8;
+  font-size: 0.62rem;
+  font-weight: 700;
+}
+
 .workspace-chat-launcher:hover {
   border-color: #8de5ff;
   background: rgba(15, 55, 88, 0.98);

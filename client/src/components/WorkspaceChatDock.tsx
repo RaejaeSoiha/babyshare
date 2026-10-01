@@ -101,6 +101,10 @@ export default function WorkspaceChatDock() {
   const activeChatId = selectedChat?.status === "active" ? selectedChat.id : "";
   const activeMessageCount = selectedChat?.status === "active" ? selectedChat.messages.length : 0;
   const newItemCount = unreadChatIds.length + chats.filter((chat) => chat.direction === "incoming" && chat.status === "pending").length;
+  // The devices endpoint deliberately excludes this browser. Include it in the
+  // displayed total so the compact card does not say "0 online" while the
+  // current user is present.
+  const onlineCount = devices.length + 1;
 
   useEffect(() => {
     if (!activeChatId) return;
@@ -280,11 +284,11 @@ export default function WorkspaceChatDock() {
         <>
           <header className="workspace-chat-header" onPointerDown={startMovingDock} onPointerMove={moveDock} onPointerUp={stopMovingDock} onPointerCancel={stopMovingDock} title="Drag to move Nearby Users">
             <span className="workspace-chat-icon"><UsersIcon /></span>
-            <div className="workspace-chat-title"><p>Company LAN</p><strong>Nearby Users <small>{devices.length} online</small></strong></div>
+            <div className="workspace-chat-title"><p>Company LAN · Private</p><strong>Nearby Users <small>{onlineCount} online</small></strong></div>
             <button type="button" className="workspace-chat-minimize" onPointerDown={(event) => event.stopPropagation()} onClick={() => setIsOpen(false)} aria-label="Minimize Nearby Users">−</button>
           </header>
           <div className="workspace-chat-users" aria-live="polite">
-            {sortedUsers.length === 0 ? <p>No colleagues are online yet.</p> : sortedUsers.map((user) => {
+            {sortedUsers.length === 0 ? <p>No other nearby users are online yet. Keep BabyShare open on the same Wi‑Fi or internet connection.</p> : sortedUsers.map((user) => {
               const activeChat = chats.find((item) => item.peerId === user.id && item.status === "active");
               const pendingChat = chats.find((item) => item.peerId === user.id && item.status === "pending");
               const latestMessage = activeChat?.messages.at(-1)?.text;
@@ -302,8 +306,8 @@ export default function WorkspaceChatDock() {
       )}
     </aside>
   ) : (
-    <button type="button" className="workspace-chat-launcher" onClick={() => setIsOpen(true)} aria-label="Open Nearby Users">
-      <UsersIcon /><span>Nearby Users</span>{newItemCount > 0 && <i aria-label={`${newItemCount} new chat item${newItemCount === 1 ? "" : "s"}`} />}
+    <button type="button" className="workspace-chat-launcher" onClick={() => setIsOpen(true)} aria-label={`Open Nearby Users: ${onlineCount} online`}>
+      <UsersIcon /><span><strong>Nearby Users</strong><small>{onlineCount} online</small></span>{newItemCount > 0 && <i aria-label={`${newItemCount} new chat item${newItemCount === 1 ? "" : "s"}`} />}
     </button>
   );
 }
