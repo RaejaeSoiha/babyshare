@@ -4505,6 +4505,8 @@ a {
 }
 
 .workspace-chat-dock {
+  display: flex;
+  flex-direction: column;
   width: min(350px, calc(100vw - 40px));
   max-height: min(620px, calc(100vh - 96px));
   overflow-y: auto;
@@ -4749,6 +4751,7 @@ a {
 
 .workspace-chat-thread {
   display: grid;
+  min-height: 0;
   gap: 10px;
   padding: 12px;
 }
@@ -4888,14 +4891,31 @@ a {
   }
 
   .workspace-chat-dock {
-    right: 0;
-    bottom: 0;
-    width: 100%;
-    max-height: min(72vh, 620px);
-    border-right: 0;
-    border-bottom: 0;
-    border-left: 0;
-    border-radius: 18px 18px 0 0;
+    right: 12px;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    left: 12px;
+    width: auto;
+    max-height: min(520px, calc(100dvh - 24px));
+    overflow-y: auto;
+    border-radius: 16px;
+  }
+
+  .workspace-chat-header {
+    padding: 12px;
+    touch-action: pan-y;
+  }
+
+  .workspace-chat-users {
+    max-height: min(300px, calc(100dvh - 180px));
+  }
+
+  .workspace-chat-thread {
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .workspace-chat-messages {
+    max-height: min(220px, max(100px, calc(100dvh - 270px)));
   }
 }
 

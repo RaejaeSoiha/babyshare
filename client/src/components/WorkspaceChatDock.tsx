@@ -45,7 +45,6 @@ export default function WorkspaceChatDock() {
   const [isCompactViewport, setIsCompactViewport] = useState(() => typeof window !== "undefined" && window.innerWidth <= 680);
   const dockDragRef = useRef<{ height: number; left: number; offsetX: number; offsetY: number; pointerId: number; top: number; width: number } | null>(null);
   const {
-    acceptChat,
     chats,
     devices,
     endChat,
@@ -72,6 +71,15 @@ export default function WorkspaceChatDock() {
     window.addEventListener("resize", updateViewport);
     return () => window.removeEventListener("resize", updateViewport);
   }, []);
+
+  // Start each workspace page with the dock minimized. A user can still open
+  // it manually or from an explicit "open chat" action.
+  useEffect(() => {
+    if (!isWorkspaceRoute) return;
+    setIsOpen(false);
+    setSelectedPeerId("");
+    setDockPosition(null);
+  }, [pathname, isWorkspaceRoute]);
 
   useEffect(() => {
     if (!isWorkspaceRoute) return;
@@ -100,11 +108,11 @@ export default function WorkspaceChatDock() {
   const selectedName = selectedUser?.displayName || selectedChat?.peerName || "Nearby user";
   const activeChatId = selectedChat?.status === "active" ? selectedChat.id : "";
   const activeMessageCount = selectedChat?.status === "active" ? selectedChat.messages.length : 0;
-  const newItemCount = unreadChatIds.length + chats.filter((chat) => chat.direction === "incoming" && chat.status === "pending").length;
-  // The devices endpoint deliberately excludes this browser. Include it in the
-  // displayed total so the compact card does not say "0 online" while the
-  // current user is present.
-  const onlineCount = devices.length + 1;
+  const newItemCount = unreadChatIds.length;
+  // The devices endpoint excludes this browser, so this is exactly the number
+  // of other people who are currently online.
+  const onlineCount = devices.length;
+  const onlineLabel = `${onlineCount} other ${onlineCount === 1 ? "user" : "users"} online`;
 
   useEffect(() => {
     if (!activeChatId) return;
@@ -129,16 +137,6 @@ export default function WorkspaceChatDock() {
       await requestChat(peerId);
     } catch {
       setError("Could not start the chat. Please try again.");
-    }
-  };
-
-  const acceptSelectedChat = async () => {
-    if (!selectedChat) return;
-    setError("");
-    try {
-      await acceptChat(selectedChat.id);
-    } catch {
-      setError("Could not accept the chat request. Please try again.");
     }
   };
 
@@ -272,11 +270,9 @@ export default function WorkspaceChatDock() {
                 </div>}
                 <button type="button" className="workspace-chat-end" onClick={() => void endSelectedChat()}>End chat · delete messages</button>
               </>
-            ) : selectedChat?.direction === "incoming" ? (
-              <div className="workspace-chat-state"><p>{selectedName} wants to start a private chat.</p><button type="button" onClick={() => void acceptSelectedChat()}>Accept chat</button><button type="button" className="workspace-chat-end" onClick={() => void endSelectedChat()}>Decline</button></div>
-            ) : selectedChat ? (
-              <div className="workspace-chat-state"><p>Chat request sent. Waiting for {selectedName} to accept.</p><button type="button" className="workspace-chat-end" onClick={() => void endSelectedChat()}>Cancel request</button></div>
-            ) : null}
+            ) : (
+              <div className="workspace-chat-state"><p>Opening a private chat with {selectedName}…</p></div>
+            )}
             {error && <p className="workspace-chat-error" role="alert">{error}</p>}
           </div>
         </>
@@ -284,19 +280,17 @@ export default function WorkspaceChatDock() {
         <>
           <header className="workspace-chat-header" onPointerDown={startMovingDock} onPointerMove={moveDock} onPointerUp={stopMovingDock} onPointerCancel={stopMovingDock} title="Drag to move Nearby Users">
             <span className="workspace-chat-icon"><UsersIcon /></span>
-            <div className="workspace-chat-title"><p>BABYSHARE WORKSPACE · PRIVATE</p><strong>Online Users <small>{onlineCount} online</small></strong></div>
+            <div className="workspace-chat-title"><p>BABYSHARE WORKSPACE · PRIVATE</p><strong>Online Users <small>{onlineLabel}</small></strong></div>
             <button type="button" className="workspace-chat-minimize" onPointerDown={(event) => event.stopPropagation()} onClick={() => setIsOpen(false)} aria-label="Minimize Nearby Users">−</button>
           </header>
           <div className="workspace-chat-users" aria-live="polite">
             {sortedUsers.length === 0 ? <p>No other signed-in users are online yet. Ask them to sign in and keep BabyShare open.</p> : sortedUsers.map((user) => {
               const activeChat = chats.find((item) => item.peerId === user.id && item.status === "active");
-              const pendingChat = chats.find((item) => item.peerId === user.id && item.status === "pending");
               const latestMessage = activeChat?.messages.at(-1)?.text;
-              const hasIncomingRequest = pendingChat?.direction === "incoming";
-              const needsAttention = Boolean((activeChat && unreadChatIds.includes(activeChat.id)) || hasIncomingRequest);
+              const needsAttention = Boolean(activeChat && unreadChatIds.includes(activeChat.id));
               return <button type="button" className={`workspace-chat-user${needsAttention ? " has-unread" : ""}`} key={user.id} onClick={() => void openUser(user.id)}>
                 <span className="workspace-chat-avatar">{avatarInitial(user.displayName)}</span>
-                <span><strong>{user.displayName}</strong><small>{latestMessage || (hasIncomingRequest ? "Chat request" : user.displayName === "Guest" ? `Guest • ${user.deviceName}` : user.deviceName)}</small></span>
+                <span><strong>{user.displayName}</strong><small>{latestMessage || (user.displayName === "Guest" ? `Guest • ${user.deviceName}` : user.deviceName)}</small></span>
                 <i aria-label={needsAttention ? "New chat item" : "Online"} className={needsAttention ? "is-unread" : ""} />
               </button>;
             })}
@@ -306,8 +300,8 @@ export default function WorkspaceChatDock() {
       )}
     </aside>
   ) : (
-    <button type="button" className="workspace-chat-launcher" onClick={() => setIsOpen(true)} aria-label={`Open Online Users: ${onlineCount} online`}>
-      <UsersIcon /><span><strong>Online Users</strong><small>{onlineCount} online</small></span>{newItemCount > 0 && <i aria-label={`${newItemCount} new chat item${newItemCount === 1 ? "" : "s"}`} />}
+    <button type="button" className="workspace-chat-launcher" onClick={() => setIsOpen(true)} aria-label={`Open Online Users: ${onlineLabel}`}>
+      <UsersIcon /><span><strong>Online Users</strong><small>{onlineLabel}</small></span>{newItemCount > 0 && <i aria-label={`${newItemCount} new chat item${newItemCount === 1 ? "" : "s"}`} />}
     </button>
   );
 }
