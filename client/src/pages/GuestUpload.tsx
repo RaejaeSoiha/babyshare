@@ -54,6 +54,7 @@ export default function GuestUpload() {
   const [creating, setCreating] = useState(false);
   const [transferState, setTransferState] = useState<"waiting" | "connecting" | "sending" | "complete">("waiting");
   const [progress, setProgress] = useState(0);
+  const [successNotice, setSuccessNotice] = useState("");
   const [error, setError] = useState("");
 
   const closeConnection = useCallback(() => {
@@ -83,6 +84,7 @@ export default function GuestUpload() {
     await completeQrPairing(activeCredentials);
     setProgress(100);
     setTransferState("complete");
+    setSuccessNotice("File sent successfully to the recipient.");
   }, []);
 
   const beginDirectTransfer = useCallback(async () => {
@@ -169,6 +171,12 @@ export default function GuestUpload() {
 
   useEffect(() => () => closeConnection(), [closeConnection]);
 
+  useEffect(() => {
+    if (!successNotice) return undefined;
+    const timer = window.setTimeout(() => setSuccessNotice(""), 6_000);
+    return () => window.clearTimeout(timer);
+  }, [successNotice]);
+
   const createPair = useCallback(async (selectedFile: File | null = file) => {
     if (!selectedFile) {
       setError("Choose one file to send.");
@@ -216,6 +224,7 @@ export default function GuestUpload() {
     setQrImage("");
     setShortCode("");
     setProgress(0);
+    setSuccessNotice("");
     setError("");
     setTransferState("waiting");
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -227,6 +236,11 @@ export default function GuestUpload() {
 
   return (
     <div className="page guest-upload-page">
+      {successNotice && <aside className="guest-transfer-toast" role="status" aria-live="polite">
+        <span className="guest-transfer-toast-icon" aria-hidden="true">✓</span>
+        <div><strong>Transfer complete</strong><span>{successNotice}</span></div>
+        <button type="button" onClick={() => setSuccessNotice("")} aria-label="Dismiss transfer complete notification">×</button>
+      </aside>}
       <header className="guest-upload-header">
         <a className="guest-upload-brand" href="/" aria-label="BabyShare home"><span className="guest-upload-brand-mark"><LightningMark /></span><span>BabyShare</span></a>
         <a className="guest-upload-home-link" href="/">Back to home</a>
