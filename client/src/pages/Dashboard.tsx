@@ -23,7 +23,10 @@ export default function Dashboard() {
   const inputRef = useRef<HTMLInputElement>(null);
   const { devices, error: lanError, requestTransfers, transfers } = useLanTransfers();
   const [me, setMe] = useState<Me | null>(null);
-  const [files, setFiles] = useState<File[]>([]);
+  const [files, setFiles] = useState<File[]>(() => {
+    const pendingFiles = (location.state as { pendingFiles?: unknown } | null)?.pendingFiles;
+    return Array.isArray(pendingFiles) && pendingFiles.every((file) => file instanceof File) ? pendingFiles.slice(0, 20) : [];
+  });
   const [recipientId, setRecipientId] = useState("");
   const [dragging, setDragging] = useState(false);
   const [sending, setSending] = useState(false);
@@ -40,14 +43,10 @@ export default function Dashboard() {
   useEffect(() => {
     const pendingFiles = (location.state as { pendingFiles?: unknown } | null)?.pendingFiles;
     if (!Array.isArray(pendingFiles) || !pendingFiles.every((file) => file instanceof File)) return;
-    setFiles(pendingFiles.slice(0, 20));
     navigate("/dashboard", { replace: true, state: null });
   }, [location.state, navigate]);
 
-  useEffect(() => {
-    if (!recipientId && devices[0]) setRecipientId(devices[0].id);
-    if (recipientId && !devices.some((device) => device.id === recipientId)) setRecipientId(devices[0]?.id || "");
-  }, [devices, recipientId]);
+  const activeRecipientId = devices.some((device) => device.id === recipientId) ? recipientId : (devices[0]?.id || "");
 
   const chooseFiles = (selected: FileList | File[]) => {
     const next = Array.from(selected);
@@ -60,11 +59,11 @@ export default function Dashboard() {
 
   const send = async () => {
     if (!files.length) return setError("Choose at least one file first.");
-    if (!recipientId) return setError("Choose an online recipient. They must keep BabyShare open to accept.");
+    if (!activeRecipientId) return setError("Choose an online recipient. They must keep BabyShare open to accept.");
     setSending(true);
     setError("");
     try {
-      await requestTransfers(recipientId, files);
+      await requestTransfers(activeRecipientId, files);
       setFiles([]);
       if (inputRef.current) inputRef.current.value = "";
     } catch {
@@ -99,12 +98,12 @@ export default function Dashboard() {
               <button className="btn btn-ghost dashboard-browse" type="button" onClick={() => inputRef.current?.click()} disabled={sending}>Browse files</button>
             </div>
             <label className="direct-recipient-label">Online recipient
-              <select value={recipientId} onChange={(event) => setRecipientId(event.target.value)} disabled={!devices.length || sending}>
+              <select value={activeRecipientId} onChange={(event) => setRecipientId(event.target.value)} disabled={!devices.length || sending}>
                 {!devices.length && <option value="">No other devices online</option>}
                 {devices.map((device) => <option key={device.id} value={device.id}>{device.displayName} · {device.platform}</option>)}
               </select>
             </label>
-            <div className="direct-send-actions"><button className="btn btn-register" type="button" disabled={!files.length || !recipientId || sending} onClick={() => void send()}>{sending ? "Sending request…" : "Request direct transfer"}</button>{files.length > 0 && <button className="dashboard-text-button" type="button" onClick={() => setFiles([])}>Clear files</button>}</div>
+            <div className="direct-send-actions"><button className="btn btn-register" type="button" disabled={!files.length || !activeRecipientId || sending} onClick={() => void send()}>{sending ? "Sending request…" : "Request direct transfer"}</button>{files.length > 0 && <button className="dashboard-text-button" type="button" onClick={() => setFiles([])}>Clear files</button>}</div>
             <p className="nearby-privacy-note">The recipient chooses a save location before accepting. BabyShare transports only connection signals and transfer metadata.</p>
             {(error || lanError) && <p className="error" role="alert">{error || lanError}</p>}
           </section>

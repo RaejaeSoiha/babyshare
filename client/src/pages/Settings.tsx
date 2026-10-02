@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useLanTransfers } from "../components/LanTransfers";
 import LogoutButton from "../components/LogoutButton";
@@ -19,7 +19,6 @@ export default function Settings() {
   const [trusted, setTrusted] = useState<TrustedDevice[]>(readTrustedDevices);
   const [saved, setSaved] = useState(false);
 
-  useEffect(() => setName(currentDevice.name), [currentDevice.name]);
   const onlineIds = useMemo(() => new Set(devices.map((device) => device.id)), [devices]);
   const saveTrusted = (next: TrustedDevice[]) => { setTrusted(next); localStorage.setItem(TRUSTED_DEVICES_KEY, JSON.stringify(next)); };
   const trust = (id: string) => {

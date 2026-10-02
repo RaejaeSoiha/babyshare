@@ -104,6 +104,7 @@ const DEVICE_TOKEN_KEY = "babyshare.lan.device-token";
 const DEVICE_NAME_KEY = "babyshare.lan.device-name";
 const DISCOVERABLE_KEY = "babyshare.lan.discoverable";
 const MEMORY_RECEIVE_LIMIT = 32 * 1024 * 1024;
+const DEVICE_NAME_DISALLOWED_CHARACTERS = /[\p{Cc}<>]/gu;
 
 declare global {
   interface Window {
@@ -144,7 +145,7 @@ function getIdentity(): DeviceIdentity {
 
 function initialDeviceName(platform: string) {
   const saved = localStorage.getItem(DEVICE_NAME_KEY) || "";
-  const cleaned = saved.replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 80);
+  const cleaned = saved.replace(DEVICE_NAME_DISALLOWED_CHARACTERS, "").trim().slice(0, 80);
   return cleaned || `${platform} device`;
 }
 
@@ -737,7 +738,7 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const renameCurrentDevice = useCallback((name: string) => {
-    const cleaned = name.replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 80) || `${identity.platform} device`;
+    const cleaned = name.replace(DEVICE_NAME_DISALLOWED_CHARACTERS, "").trim().slice(0, 80) || `${identity.platform} device`;
     localStorage.setItem(DEVICE_NAME_KEY, cleaned);
     setDeviceName(cleaned);
   }, [identity.platform]);

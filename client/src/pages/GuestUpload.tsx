@@ -198,7 +198,6 @@ export default function GuestUpload() {
 
   useEffect(() => {
     if (!fileFromHome) return;
-    setFile(fileFromHome);
     navigate("/guest-upload", { replace: true, state: null });
   }, [fileFromHome, navigate]);
 
