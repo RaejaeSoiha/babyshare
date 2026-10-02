@@ -1440,6 +1440,14 @@ a {
   padding: clamp(24px, 4vw, 40px);
 }
 
+/* Keep the signed-in landing area focused on sending a file instead of a
+   large greeting banner. Other uses of the shared welcome card retain their
+   roomier spacing. */
+.direct-dashboard .dashboard-welcome {
+  min-height: 0;
+  padding: clamp(20px, 2vw, 28px) clamp(24px, 3vw, 32px);
+}
+
 .dashboard-welcome h1 {
   font-size: clamp(1.65rem, 3.1vw, 2.55rem);
   letter-spacing: -0.055em;
