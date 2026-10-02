@@ -61,6 +61,7 @@ export default function GuestReceive() {
   const [connecting, setConnecting] = useState(false);
   const [progress, setProgress] = useState(0);
   const [received, setReceived] = useState<ReceivedFile | null>(null);
+  const [successNotice, setSuccessNotice] = useState("");
   const [error, setError] = useState("");
   const displayedError = error;
 
@@ -117,9 +118,11 @@ export default function GuestReceive() {
         }
         void writeChainRef.current.then(async () => {
           await writerRef.current?.close();
+          const savedDirectly = Boolean(writerRef.current);
           const receivedFile = writerRef.current ? null : new Blob(chunksRef.current, { type: mimeTypeRef.current });
           const url = receivedFile ? URL.createObjectURL(receivedFile) : undefined;
           setReceived({ name: pairing.file.name, size: pairing.file.size, type: receivedFile?.type || mimeTypeRef.current, url });
+          setSuccessNotice(savedDirectly ? "File saved successfully to this device." : "File received successfully. It is ready to save.");
           setProgress(100);
           setConnecting(false);
           void completeQrPairing(activeCredentials).catch(() => {});
@@ -195,6 +198,12 @@ export default function GuestReceive() {
     if (received?.url) URL.revokeObjectURL(received.url);
   }, [closeConnection, received]);
 
+  useEffect(() => {
+    if (!successNotice) return undefined;
+    const timer = window.setTimeout(() => setSuccessNotice(""), 6_000);
+    return () => window.clearTimeout(timer);
+  }, [successNotice]);
+
   const accept = async () => {
     if (!credentials || !pairing) return;
     setAccepting(true);
@@ -239,6 +248,11 @@ export default function GuestReceive() {
 
   return (
     <div className="page guest-upload-page">
+      {successNotice && <aside className="guest-transfer-toast" role="status" aria-live="polite">
+        <span className="guest-transfer-toast-icon" aria-hidden="true">✓</span>
+        <div><strong>Transfer complete</strong><span>{successNotice}</span></div>
+        <button type="button" onClick={() => setSuccessNotice("")} aria-label="Dismiss transfer complete notification">×</button>
+      </aside>}
       <header className="guest-upload-header">
         <a className="guest-upload-brand" href="/" aria-label="BabyShare home"><span className="guest-upload-brand-mark"><LightningMark /></span><span>BabyShare</span></a>
         <a className="guest-upload-home-link" href="/">Back to home</a>
@@ -262,7 +276,7 @@ export default function GuestReceive() {
           {received && <div className="guest-success-card guest-received-file">
             <div className="guest-success-icon"><ShieldIcon /></div>
             <p className="guest-upload-kicker">DIRECT TRANSFER COMPLETE</p>
-            <h1>{received.name}</h1>
+            <h1 className="guest-received-name" title={received.name}>{received.name}</h1>
             <p>{formatFileSize(received.size)} {received.url ? "received directly in this browser." : "was saved directly to your device."}</p>
             <div className="guest-success-actions">
                {previewable && received.url && <a href={received.url} target="_blank" rel="noreferrer">Preview file</a>}
