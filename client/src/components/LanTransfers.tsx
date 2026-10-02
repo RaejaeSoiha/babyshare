@@ -90,7 +90,10 @@ type LanTransferContextValue = {
   acceptTransfer: (transferId: string) => Promise<void>;
   declineTransfer: (transferId: string) => Promise<void>;
   cancelTransfer: (transfer: LanTransfer) => Promise<void>;
-  downloadTransfer: (transfer: LanTransfer) => void;
+  canDownloadTransfer: (transferId: string) => boolean;
+  downloadTransfer: (transfer: LanTransfer) => boolean;
+  dismissedTransferIds: string[];
+  dismissTransferNotification: (transferId: string) => void;
   dismissMessageNotification: (messageId: string) => void;
   messageNotifications: LanMessageNotification[];
 };
@@ -168,6 +171,7 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
   const [transfers, setTransfers] = useState<LanTransfer[]>([]);
   const [unreadChatIds, setUnreadChatIds] = useState<string[]>([]);
   const [messageNotifications, setMessageNotifications] = useState<LanMessageNotification[]>([]);
+  const [dismissedTransferIds, setDismissedTransferIds] = useState<string[]>([]);
   const [error, setError] = useState("");
 
   const deviceHeaders = useCallback(() => ({
@@ -347,13 +351,13 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
   }, [deviceHeaders]);
 
   const acceptTransfer = useCallback(async (transferId: string) => {
+    let writer: FileSystemWritableFileStream | undefined;
     try {
       const requested = transfersRef.current.find((transfer) => transfer.id === transferId && transfer.direction === "incoming");
       if (!requested) throw new Error("transfer_unavailable");
       // Stream into a user-selected file when the browser permits it. On
       // platforms without the File System Access API, only small files use a
       // bounded in-memory fallback; large files are never accumulated in RAM.
-      let writer: FileSystemWritableFileStream | undefined;
       if (window.showSaveFilePicker) {
         const handle = await window.showSaveFilePicker({ suggestedName: requested.name });
         writer = await handle.createWritable();
@@ -373,9 +377,15 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
       updateTransfer(payload.transfer);
       setError("");
     } catch (responseError) {
-      setError(responseError instanceof Error && responseError.message === "save_picker_required"
-        ? "This browser needs its save-file picker for transfers larger than 32 MB. Use a current desktop browser or choose a smaller file."
-        : messageForError(responseError));
+      await writer?.abort().catch(() => undefined);
+      if (responseError instanceof DOMException && responseError.name === "AbortError") {
+        setError("");
+      } else {
+        setError(responseError instanceof Error && responseError.message === "save_picker_required"
+          ? "This browser needs its save-file picker for transfers larger than 32 MB. Use a current desktop browser or choose a smaller file."
+          : messageForError(responseError));
+      }
+      throw responseError;
     }
   }, [deviceHeaders, updateTransfer]);
 
@@ -413,7 +423,18 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
     peerSessionsRef.current.delete(transferId);
   }, []);
 
+  const abortReceiverSave = useCallback(async (transferId: string) => {
+    const pendingSink = receiverSinksRef.current.get(transferId);
+    const activeSession = peerSessionsRef.current.get(transferId);
+    receiverSinksRef.current.delete(transferId);
+    await Promise.all([
+      pendingSink?.writer?.abort(),
+      activeSession?.writer?.abort(),
+    ].filter((operation): operation is Promise<void> => Boolean(operation)).map((operation) => operation.catch(() => undefined)));
+  }, []);
+
   const failPeerTransfer = useCallback(async (transfer: LanTransfer, message = "Could not establish a direct connection. Keep both devices open and try again.") => {
+    await abortReceiverSave(transfer.id);
     closePeerSession(transfer.id);
     peerStartsRef.current.delete(transfer.id);
     pendingFilesRef.current.delete(transfer.id);
@@ -430,9 +451,10 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
     } catch {
       setError(message);
     }
-  }, [closePeerSession, deviceHeaders, updateTransfer]);
+  }, [abortReceiverSave, closePeerSession, deviceHeaders, updateTransfer]);
 
   const cancelTransfer = useCallback(async (transfer: LanTransfer) => {
+    await abortReceiverSave(transfer.id);
     closePeerSession(transfer.id);
     pendingFilesRef.current.delete(transfer.id);
     peerStartsRef.current.delete(transfer.id);
@@ -444,7 +466,7 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
     const payload = await response.json().catch(() => ({})) as { transfer?: LanTransfer };
     if (!response.ok || !payload.transfer) throw new Error("transfer_cancel_failed");
     updateTransfer(payload.transfer);
-  }, [closePeerSession, deviceHeaders, updateTransfer]);
+  }, [abortReceiverSave, closePeerSession, deviceHeaders, updateTransfer]);
 
   const reportPeerProgress = useCallback(async (session: PeerSession, bytesTransferred: number) => {
     const percentage = session.expectedSize > 0 ? Math.floor((bytesTransferred / session.expectedSize) * 100) : 100;
@@ -693,8 +715,8 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
   const downloadTransfer = useCallback((transfer: LanTransfer) => {
     const file = peerFilesRef.current.get(transfer.id);
     if (!file) {
-      setError("This file was already saved directly to your device. BabyShare does not keep another copy.");
-      return;
+      setError("This file was saved directly to your device. BabyShare does not keep a second copy.");
+      return false;
     }
     const link = document.createElement("a");
     const objectUrl = URL.createObjectURL(file);
@@ -705,6 +727,13 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
     link.remove();
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
     peerFilesRef.current.delete(transfer.id);
+    return true;
+  }, []);
+
+  const canDownloadTransfer = useCallback((transferId: string) => peerFilesRef.current.has(transferId), []);
+
+  const dismissTransferNotification = useCallback((transferId: string) => {
+    setDismissedTransferIds((current) => current.includes(transferId) ? current : [...current, transferId]);
   }, []);
 
   const renameCurrentDevice = useCallback((name: string) => {
@@ -731,11 +760,14 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
       acceptChat,
       cancelTransfer,
       chats,
+      canDownloadTransfer,
       currentDevice: { id: identity.deviceId, name: deviceName, platform: identity.platform },
       discoverable,
       declineTransfer,
+      dismissedTransferIds,
       devices,
       dismissMessageNotification,
+      dismissTransferNotification,
       downloadTransfer,
       endChat,
       error,
@@ -762,11 +794,11 @@ export function useLanTransfers() {
   return context;
 }
 
-function transferStatus(transfer: LanTransfer) {
+function transferStatus(transfer: LanTransfer, canDownload = false) {
   if (transfer.status === "pending") return "Waiting for your response";
-  if (transfer.status === "accepted") return "Accepted — establishing a direct connection";
+  if (transfer.status === "accepted") return "Save location selected — establishing a direct connection";
   if (transfer.status === "receiving") return `Receiving directly ${transfer.progress}%`;
-  if (transfer.status === "completed") return "Saved directly to this device";
+  if (transfer.status === "completed") return canDownload ? "File received — ready to save" : "Saved directly to this device";
   if (transfer.status === "cancelled") return "Cancelled";
   return "Direct connection failed — ask the sender to try again";
 }
@@ -776,16 +808,22 @@ export function LanTransferNotifications() {
     acceptChat,
     acceptTransfer,
     chats,
+    canDownloadTransfer,
     cancelTransfer,
     declineTransfer,
+    dismissedTransferIds,
     downloadTransfer,
     dismissMessageNotification,
+    dismissTransferNotification,
     endChat,
     messageNotifications,
     transfers,
   } = useLanTransfers();
+  const [savingTransferId, setSavingTransferId] = useState<string | null>(null);
+  const [transferActionErrors, setTransferActionErrors] = useState<Record<string, string>>({});
   const incomingChats = chats.filter((chat) => chat.direction === "incoming" && chat.status === "pending").slice(0, 3);
   const incomingTransfers = transfers.filter((transfer) => transfer.direction === "incoming"
+    && !dismissedTransferIds.includes(transfer.id)
     && ["pending", "accepted", "receiving", "completed"].includes(transfer.status)).slice(0, 3);
   const messageGroups: Array<{ chatId: string; messages: LanMessageNotification[]; peerId: string; peerName: string }> = [];
   messageNotifications.forEach((message) => {
@@ -798,6 +836,38 @@ export function LanTransferNotifications() {
     dismissMessageNotification(message.id);
   };
   const dismissMessageGroup = (messages: LanMessageNotification[]) => messages.forEach((message) => dismissMessageNotification(message.id));
+  const saveIncomingTransfer = async (transfer: LanTransfer) => {
+    setSavingTransferId(transfer.id);
+    setTransferActionErrors((current) => {
+      const next = { ...current };
+      delete next[transfer.id];
+      return next;
+    });
+    try {
+      await acceptTransfer(transfer.id);
+    } catch (cause) {
+      if (cause instanceof DOMException && cause.name === "AbortError") return;
+      const message = cause instanceof Error && cause.message === "save_picker_required"
+        ? "Large files require a browser where you can choose a save location. Try Chrome or Edge on desktop."
+        : "Could not start the save. Choose a save location and try again.";
+      setTransferActionErrors((current) => ({ ...current, [transfer.id]: message }));
+    } finally {
+      setSavingTransferId((current) => current === transfer.id ? null : current);
+    }
+  };
+  const cancelIncomingTransfer = async (transfer: LanTransfer) => {
+    setTransferActionErrors((current) => {
+      const next = { ...current };
+      delete next[transfer.id];
+      return next;
+    });
+    try {
+      if (transfer.status === "pending") await declineTransfer(transfer.id);
+      else await cancelTransfer(transfer);
+    } catch {
+      setTransferActionErrors((current) => ({ ...current, [transfer.id]: "Could not cancel this transfer. Please try again." }));
+    }
+  };
 
   useEffect(() => {
     if (messageNotifications.length === 0) return;
@@ -846,16 +916,31 @@ export function LanTransferNotifications() {
           <p className="lan-notification-kicker">Nearby file request</p>
           <strong>{transfer.peerName} wants to send {transfer.name}</strong>
           <p>Private one-time transfer — no conversation history is saved.</p>
-          <p>{transferStatus(transfer)}</p>
+          <p className="lan-transfer-state">{transferStatus(transfer, canDownloadTransfer(transfer.id))}</p>
+          {transferActionErrors[transfer.id] && <p className="lan-transfer-error" role="alert">{transferActionErrors[transfer.id]}</p>}
           {transfer.status === "receiving" && <progress max="100" value={transfer.progress} />}
           {transfer.status === "pending" && (
             <div className="lan-notification-actions">
-              <button type="button" className="lan-accept" onClick={() => void acceptTransfer(transfer.id)}>Accept file</button>
-              <button type="button" className="lan-decline" onClick={() => void declineTransfer(transfer.id)}>Decline</button>
+              <button type="button" className="lan-accept" disabled={savingTransferId === transfer.id} onClick={() => void saveIncomingTransfer(transfer)}>
+                {savingTransferId === transfer.id ? "Choosing save location…" : "Save file"}
+              </button>
+              <button type="button" className="lan-decline" disabled={savingTransferId === transfer.id} onClick={() => void cancelIncomingTransfer(transfer)}>Cancel</button>
             </div>
           )}
-          {transfer.status === "completed" && <button type="button" className="lan-accept" onClick={() => downloadTransfer(transfer)}>Save file</button>}
-          {["accepted", "receiving"].includes(transfer.status) && <button type="button" className="lan-decline" onClick={() => void cancelTransfer(transfer).catch(() => {})}>Cancel transfer</button>}
+          {transfer.status === "completed" && (canDownloadTransfer(transfer.id) ? (
+            <div className="lan-notification-actions">
+              <button type="button" className="lan-accept" onClick={() => {
+                if (downloadTransfer(transfer)) dismissTransferNotification(transfer.id);
+              }}>Save file</button>
+              <button type="button" className="lan-decline" onClick={() => dismissTransferNotification(transfer.id)}>Dismiss</button>
+            </div>
+          ) : (
+            <div className="lan-notification-actions lan-notification-complete-actions">
+              <span>Saved to the location you chose.</span>
+              <button type="button" className="lan-decline" onClick={() => dismissTransferNotification(transfer.id)}>Dismiss</button>
+            </div>
+          ))}
+          {["accepted", "receiving"].includes(transfer.status) && <button type="button" className="lan-decline" onClick={() => void cancelIncomingTransfer(transfer)}>Cancel transfer</button>}
         </section>
       ))}
     </aside>

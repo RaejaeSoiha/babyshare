@@ -4198,6 +4198,13 @@ a {
   opacity: 0.5;
 }
 
+.lan-accept:disabled,
+.lan-decline:disabled {
+  cursor: wait;
+  opacity: 0.6;
+  transform: none;
+}
+
 .nearby-files {
   overflow: hidden;
   color: #a3ceee;
@@ -4417,6 +4424,19 @@ a {
   margin: 0;
 }
 
+.lan-transfer-state {
+  color: #b8d9ec !important;
+}
+
+.lan-transfer-error {
+  padding: 8px 9px;
+  border: 1px solid rgba(255, 148, 119, 0.38);
+  border-radius: 8px;
+  background: rgba(114, 38, 26, 0.34);
+  color: #ffd0c2 !important;
+  font-size: 0.75rem !important;
+}
+
 .lan-notification-actions {
   display: flex;
   gap: 8px;
@@ -4425,6 +4445,22 @@ a {
 .lan-notification-actions button,
 .lan-notification > .lan-accept {
   flex: 1;
+}
+
+.lan-notification-complete-actions {
+  align-items: center;
+}
+
+.lan-notification-complete-actions span {
+  min-width: 0;
+  flex: 1;
+  color: #93dcb6;
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.lan-notification-complete-actions .lan-decline {
+  flex: 0 0 auto;
 }
 
 .nearby-users-panel-toggle:focus-visible,
