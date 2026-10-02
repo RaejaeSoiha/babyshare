@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useLanTransfers } from "../components/LanTransfers";
+import LogoutButton from "../components/LogoutButton";
 import { apiFetch } from "../lib/api";
 
 type Me = { isAdmin: boolean; user: string };
@@ -73,11 +74,6 @@ export default function Dashboard() {
     }
   };
 
-  const logout = async () => {
-    await apiFetch("/logout", { method: "POST" });
-    window.location.assign("/");
-  };
-
   if (!me) return <main className="page auth"><section className="auth-card"><h1>{error ? "Workspace unavailable" : "Loading your workspace…"}</h1>{error && <p className="error">{error}</p>}</section></main>;
 
   const activeTransfers = transfers.filter((transfer) => ["pending", "accepted", "receiving"].includes(transfer.status)).slice(0, 5);
@@ -86,7 +82,7 @@ export default function Dashboard() {
       <section className="dashboard-shell">
         <header className="dashboard-header dashboard-topbar">
           <Link className="dashboard-brand" to="/" aria-label="BabyShare home"><span className="dashboard-brand-mark">ϟ</span><span>BabyShare</span></Link>
-          <div className="dashboard-actions"><Link className="btn btn-ghost" to="/files">Transfer history</Link><Link className="btn btn-ghost" to="/settings">Devices</Link>{me.isAdmin && <Link className="btn btn-admin" to="/admin">Admin</Link>}<button className="dashboard-logout" type="button" onClick={() => void logout()}>Log out</button></div>
+          <div className="dashboard-actions"><Link className="btn btn-ghost" to="/files">Transfer history</Link><Link className="btn btn-ghost" to="/settings">Devices</Link>{me.isAdmin && <Link className="btn btn-admin" to="/admin">Admin</Link>}<LogoutButton /></div>
         </header>
 
         <section className="dashboard-welcome dashboard-card">

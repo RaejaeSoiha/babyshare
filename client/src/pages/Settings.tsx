@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useLanTransfers } from "../components/LanTransfers";
+import LogoutButton from "../components/LogoutButton";
 
 type TrustedDevice = { id: string; name: string; platform: string; trustedAt: number };
 const TRUSTED_DEVICES_KEY = "babyshare.trusted-devices";
@@ -29,7 +30,7 @@ export default function Settings() {
   const forget = (id: string) => saveTrusted(trusted.filter((device) => device.id !== id));
 
   return <main className="page settings-page"><section className="dashboard-shell settings-shell">
-    <header className="dashboard-header dashboard-topbar"><Link className="dashboard-brand" to="/" aria-label="BabyShare home"><span className="dashboard-brand-mark">ϟ</span><span>BabyShare</span></Link><div className="dashboard-actions"><Link className="btn btn-ghost" to="/dashboard">Workspace</Link><Link className="btn btn-ghost" to="/files">History</Link></div></header>
+    <header className="dashboard-header dashboard-topbar"><Link className="dashboard-brand" to="/" aria-label="BabyShare home"><span className="dashboard-brand-mark">ϟ</span><span>BabyShare</span></Link><div className="dashboard-actions"><Link className="btn btn-ghost" to="/dashboard">Workspace</Link><Link className="btn btn-ghost" to="/files">History</Link><LogoutButton /></div></header>
     <section className="dashboard-welcome dashboard-card"><div><p className="eyebrow">Privacy and devices</p><h1>Control how this browser appears.</h1><p>These preferences affect local discovery and trusted-device shortcuts. File content is never included.</p></div></section>
     <div className="settings-grid">
       <section className="dashboard-card settings-card"><p className="eyebrow">My device</p><h2>{currentDevice.platform}</h2><label>Device name<input value={name} maxLength={80} onChange={(event) => { setName(event.target.value); setSaved(false); }} /></label><div className="direct-send-actions"><button className="btn btn-register" type="button" onClick={() => { renameCurrentDevice(name); setSaved(true); }}>Save name</button>{saved && <span className="settings-saved">Saved</span>}</div><p className="settings-device-id">Browser ID: {currentDevice.id.slice(0, 12)}…</p><button className="lan-decline" type="button" onClick={signOutCurrentDevice}>Forget this browser</button></section>

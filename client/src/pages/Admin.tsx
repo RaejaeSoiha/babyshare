@@ -1,6 +1,7 @@
 // Administration console for user lifecycle and direct-transfer workspace status.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import LogoutButton from "../components/LogoutButton";
 import { apiFetch } from "../lib/api";
 
 type Overview = { guestsCount: number; usersCount: number };
@@ -186,6 +187,7 @@ export default function Admin() {
           <div className="dashboard-actions">
             <Link className="btn btn-ghost" to="/dashboard">Dashboard</Link>
             <Link className="btn btn-ghost" to="/files">Transfer history</Link>
+            <LogoutButton />
           </div>
         </header>
 

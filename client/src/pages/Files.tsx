@@ -1,6 +1,7 @@
 // Metadata-only transfer history. No entry provides a server-side download.
 import { Link } from "react-router-dom";
 import { useLanTransfers } from "../components/LanTransfers";
+import LogoutButton from "../components/LogoutButton";
 
 function formatFileSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -25,7 +26,7 @@ export default function Files() {
       <section className="vault-shell">
         <header className="dashboard-header dashboard-topbar vault-topbar">
           <Link className="dashboard-brand" to="/" aria-label="BabyShare home"><span className="dashboard-brand-mark">ϟ</span><span>BabyShare</span></Link>
-          <div className="dashboard-actions"><Link className="btn btn-ghost" to="/dashboard">Send files</Link></div>
+          <div className="dashboard-actions"><Link className="btn btn-ghost" to="/dashboard">Send files</Link><LogoutButton /></div>
         </header>
         <section className="vault-hero"><div><p className="eyebrow">Private metadata</p><h1>Transfer history</h1><p>BabyShare records transfer names, sizes, dates, peers, and status for this active workspace. It never stores a downloadable server copy.</p></div><span className="vault-count">{transfers.length} {transfers.length === 1 ? "transfer" : "transfers"}</span></section>
         <section className="vault-card transfer-history-list" aria-label="Direct transfer history">

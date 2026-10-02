@@ -1362,7 +1362,7 @@ a {
 /* Authenticated dashboard: a compact, task-led workspace that matches the home page. */
 .page.dashboard {
   align-items: flex-start;
-  padding: 24px 24px 64px;
+  padding: 0 24px 64px;
 }
 
 .dashboard-shell {
@@ -1373,6 +1373,18 @@ a {
 .dashboard-topbar {
   align-items: center;
   padding: 12px 16px;
+}
+
+/* Signed-in navigation follows the home header: a free-standing brand on the
+   left and actions on the right, rather than one card around both groups. */
+.dashboard-header.dashboard-topbar {
+  min-height: 82px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  animation: none;
 }
 
 .dashboard-brand {
@@ -1878,7 +1890,7 @@ a {
 /* File Vault shares the dashboard language while making account ownership and file actions clearer. */
 .page.vault-page {
   align-items: flex-start;
-  padding: 24px 24px 64px;
+  padding: 0 24px 64px;
 }
 
 .vault-shell {
@@ -2219,13 +2231,18 @@ a {
 /* Administrative control center. */
 .page.admin-page {
   align-items: flex-start;
-  padding: 24px 24px 64px;
+  padding: 0 24px 64px;
 }
 
 .admin-shell {
   display: grid;
   gap: 18px;
   width: min(1180px, 100%);
+}
+
+.settings-page {
+  align-items: flex-start;
+  padding: 0 24px 64px;
 }
 
 .admin-hero {
@@ -5446,9 +5463,15 @@ code,
 
   .page.dashboard,
   .page.vault-page,
-  .page.admin-page {
+  .page.admin-page,
+  .settings-page {
+    padding-top: 0;
     padding-right: 12px;
     padding-left: 12px;
+  }
+
+  .dashboard-header.dashboard-topbar {
+    min-height: 68px;
   }
 
   .dashboard-shell,
