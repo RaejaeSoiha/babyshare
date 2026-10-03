@@ -1,3 +1,4 @@
+import { sendFileChunks } from "../lib/sendFileChunks";
 import { useCallback, useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -46,6 +47,7 @@ export default function GuestUpload() {
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const startedRef = useRef(false);
+  const finishedRef = useRef(false);
   const [file, setFile] = useState<File | null>(fileFromHome);
   const [pairing, setPairing] = useState<QrPairing | null>(null);
   const [credentials, setCredentials] = useState<QrCredentials | null>(null);
@@ -65,22 +67,12 @@ export default function GuestUpload() {
 
   const sendFile = useCallback(async (channel: RTCDataChannel, transferFile: File, activeCredentials: QrCredentials) => {
     channel.send(JSON.stringify({ mimeType: transferFile.type || "application/octet-stream", name: transferFile.name, size: transferFile.size, type: "metadata" }));
-    const chunkSize = 64 * 1024;
-    for (let offset = 0; offset < transferFile.size; offset += chunkSize) {
-      while (channel.bufferedAmount > 512 * 1024) {
-        await new Promise<void>((resolve) => {
-          const timeout = window.setTimeout(resolve, 250);
-          channel.addEventListener("bufferedamountlow", () => {
-            window.clearTimeout(timeout);
-            resolve();
-          }, { once: true });
-        });
-      }
-      if (channel.readyState !== "open") throw new Error("channel_closed");
-      channel.send(await transferFile.slice(offset, Math.min(offset + chunkSize, transferFile.size)).arrayBuffer());
-      setProgress(Math.min(100, Math.floor(((offset + chunkSize) / transferFile.size) * 100)));
-    }
-    channel.send(JSON.stringify({ type: "complete" }));
+    const sending = await sendFileChunks(channel, transferFile, bytes => setProgress(Math.min(99, Math.floor(bytes / transferFile.size * 100))));
+    try {
+      channel.send(JSON.stringify({ type: "complete" }));
+      await sending.waitForSave();
+    } finally { sending.dispose(); }
+    finishedRef.current = true;
     await completeQrPairing(activeCredentials);
     setProgress(100);
     setTransferState("complete");
@@ -100,7 +92,7 @@ export default function GuestUpload() {
       if (event.candidate) void sendQrSignal(credentials, { candidate: event.candidate.toJSON(), sessionId, type: "candidate" }).catch(() => setError(directTransferError(null)));
     };
     pc.onconnectionstatechange = () => {
-      if (["failed", "closed"].includes(pc.connectionState)) setError(directTransferError(null));
+      if (["failed", "closed"].includes(pc.connectionState) && !finishedRef.current) setError(directTransferError(null));
     };
     channel.onopen = () => {
       setTransferState("sending");
@@ -192,6 +184,7 @@ export default function GuestUpload() {
       const created = await createQrPairing(selectedFile);
       const image = await QRCode.toDataURL(created.url, { errorCorrectionLevel: "M", margin: 1, width: 260 });
       startedRef.current = false;
+      finishedRef.current = false;
       setCredentials({ pairToken: created.pairToken, role: "sender", secret: created.senderSecret });
       setPairing({ expiresAt: created.expiresAt, file: { name: selectedFile.name, size: selectedFile.size }, status: "waiting" });
       setQrImage(image);

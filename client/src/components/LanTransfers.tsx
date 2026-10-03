@@ -1,6 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { apiFetch } from "../lib/api";
+import { createReceiveSink, receiveStorageError } from "../lib/receiveStorage";
+import type { ReceiveSink } from "../lib/receiveStorage";
+import { sendFileChunks } from "../lib/sendFileChunks";
 import { QR_PEER_CONFIG } from "../lib/qrPairing";
 
 export type LanDevice = {
@@ -54,7 +57,8 @@ type LanSignal = {
 type SignalEnvelope = { senderId: string; signal: LanSignal };
 type PeerSession = {
   channel?: RTCDataChannel;
-  chunks?: BlobPart[];
+  sink?: ReceiveSink;
+  queuedBytes?: number;
   expectedSize: number;
   finished: boolean;
   id: string;
@@ -66,10 +70,9 @@ type PeerSession = {
   peerId: string;
   timeout?: number;
   writeChain: Promise<void>;
-  writer?: FileSystemWritableFileStream;
 };
 type PendingPeerCandidate = { candidate: RTCIceCandidateInit; senderId: string };
-type ReceiverSink = { chunks?: BlobPart[]; writer?: FileSystemWritableFileStream };
+type ReceiverSink = ReceiveSink;
 type LanTransferContextValue = {
   chats: LanChat[];
   devices: LanDevice[];
@@ -103,15 +106,7 @@ const DEVICE_ID_KEY = "babyshare.lan.device-id";
 const DEVICE_TOKEN_KEY = "babyshare.lan.device-token";
 const DEVICE_NAME_KEY = "babyshare.lan.device-name";
 const DISCOVERABLE_KEY = "babyshare.lan.discoverable";
-const MEMORY_RECEIVE_LIMIT = 32 * 1024 * 1024;
 const DEVICE_NAME_DISALLOWED_CHARACTERS = /[\p{Cc}<>]/gu;
-
-declare global {
-  interface Window {
-    showSaveFilePicker?: (options?: { suggestedName?: string }) => Promise<{ createWritable: () => Promise<FileSystemWritableFileStream> }>;
-  }
-
-}
 
 function randomValue() {
   if (typeof crypto.randomUUID === "function") return crypto.randomUUID().replace(/-/g, "");
@@ -163,6 +158,17 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
   const receiverSinksRef = useRef(new Map<string, ReceiverSink>());
   const pendingPeerCandidatesRef = useRef(new Map<string, PendingPeerCandidate[]>());
   const peerFilesRef = useRef(new Map<string, Blob>());
+  const savedSinksRef = useRef(new Map<string, ReceiveSink>());
+  useEffect(() => {
+    const pending = receiverSinksRef.current;
+    const saved = savedSinksRef.current;
+    return () => {
+      for (const sink of [...pending.values(), ...saved.values()]) void sink.dispose();
+      pending.clear();
+      saved.clear();
+    };
+  }, []);
+
   const peerStartsRef = useRef(new Set<string>());
   const transfersRef = useRef<LanTransfer[]>([]);
   const knownMessageIdsRef = useRef(new Set<string>());
@@ -352,19 +358,11 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
   }, [deviceHeaders]);
 
   const acceptTransfer = useCallback(async (transferId: string) => {
-    let writer: FileSystemWritableFileStream | undefined;
+    let sink: ReceiveSink | undefined;
     try {
       const requested = transfersRef.current.find((transfer) => transfer.id === transferId && transfer.direction === "incoming");
       if (!requested) throw new Error("transfer_unavailable");
-      // Stream into a user-selected file when the browser permits it. On
-      // platforms without the File System Access API, only small files use a
-      // bounded in-memory fallback; large files are never accumulated in RAM.
-      if (window.showSaveFilePicker) {
-        const handle = await window.showSaveFilePicker({ suggestedName: requested.name });
-        writer = await handle.createWritable();
-      } else if (requested.size > MEMORY_RECEIVE_LIMIT) {
-        throw new Error("save_picker_required");
-      }
+      sink = await createReceiveSink(requested.name, requested.size);
       const response = await apiFetch(`/api/lan/transfers/${encodeURIComponent(transferId)}/accept`, {
         body: JSON.stringify({}),
         headers: { "Content-Type": "application/json", ...deviceHeaders() },
@@ -374,17 +372,15 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
       if (!response.ok || !payload.transfer) throw new Error("transfer_response_failed");
       // Store the stream before the offer can arrive. The session is created
       // later when WebRTC receives that offer.
-      receiverSinksRef.current.set(transferId, writer ? { writer } : { chunks: [] });
+      receiverSinksRef.current.set(transferId, sink);
       updateTransfer(payload.transfer);
       setError("");
     } catch (responseError) {
-      await writer?.abort().catch(() => undefined);
+      await sink?.dispose();
       if (responseError instanceof DOMException && responseError.name === "AbortError") {
         setError("");
       } else {
-        setError(responseError instanceof Error && responseError.message === "save_picker_required"
-          ? "This browser needs its save-file picker for transfers larger than 32 MB. Use a current desktop browser or choose a smaller file."
-          : messageForError(responseError));
+        setError(receiveStorageError(responseError));
       }
       throw responseError;
     }
@@ -417,6 +413,7 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
   const closePeerSession = useCallback((transferId: string) => {
     const session = peerSessionsRef.current.get(transferId);
     if (!session) return;
+    if (!session.finished) void session.sink?.dispose();
     session.finished = true;
     if (session.timeout) window.clearTimeout(session.timeout);
     try { session.channel?.close(); } catch { /* The peer may already be gone. */ }
@@ -429,8 +426,8 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
     const activeSession = peerSessionsRef.current.get(transferId);
     receiverSinksRef.current.delete(transferId);
     await Promise.all([
-      pendingSink?.writer?.abort(),
-      activeSession?.writer?.abort(),
+      pendingSink?.dispose(),
+      activeSession?.sink?.dispose(),
     ].filter((operation): operation is Promise<void> => Boolean(operation)).map((operation) => operation.catch(() => undefined)));
   }, []);
 
@@ -487,22 +484,12 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
     const channel = session.channel;
     if (!channel || channel.readyState !== "open") throw new Error("peer_channel_unavailable");
     channel.send(JSON.stringify({ name: file.name, size: file.size, transferId: session.id, type: "metadata" }));
-    const chunkSize = 64 * 1024;
-    for (let offset = 0; offset < file.size; offset += chunkSize) {
-      while (channel.bufferedAmount > 512 * 1024) {
-        await new Promise<void>((resolve) => {
-          const timeout = window.setTimeout(resolve, 250);
-          channel.addEventListener("bufferedamountlow", () => {
-            window.clearTimeout(timeout);
-            resolve();
-          }, { once: true });
-        });
-      }
-      if (channel.readyState !== "open") throw new Error("peer_channel_closed");
-      channel.send(await file.slice(offset, Math.min(offset + chunkSize, file.size)).arrayBuffer());
-      await reportPeerProgress(session, Math.min(offset + chunkSize, file.size));
-    }
-    channel.send(JSON.stringify({ transferId: session.id, type: "complete" }));
+    if (session.timeout) window.clearTimeout(session.timeout);
+    const sending = await sendFileChunks(channel, file, bytes => reportPeerProgress(session, bytes));
+    try {
+      channel.send(JSON.stringify({ transferId: session.id, type: "complete" }));
+      await sending.waitForSave();
+    } finally { sending.dispose(); }
     pendingFilesRef.current.delete(session.id);
     session.finished = true;
     if (session.timeout) window.clearTimeout(session.timeout);
@@ -523,7 +510,8 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
       receiverSinksRef.current.delete(transferId);
       const pc = new RTCPeerConnection(QR_PEER_CONFIG);
       session = {
-        chunks: sink.chunks,
+        sink,
+        queuedBytes: 0,
         expectedSize: transfer.size,
         finished: false,
         id: transfer.id,
@@ -534,7 +522,6 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
         role: "recipient",
         transfer,
         writeChain: Promise.resolve(),
-        writer: sink.writer,
       };
       peerSessionsRef.current.set(transferId, session);
       pc.onicecandidate = (event) => {
@@ -558,17 +545,22 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
               return;
             }
             void session!.writeChain.then(async () => {
-              await session!.writer?.close();
-              if (session!.chunks) peerFilesRef.current.set(transferId, new Blob(session!.chunks));
+              const file = await session!.sink!.close();
+              if (file) {
+                peerFilesRef.current.set(transferId, file);
+                savedSinksRef.current.set(transferId, session!.sink!);
+              }
+
               const response = await apiFetch(`/api/lan/transfers/${encodeURIComponent(transferId)}/peer-complete`, {
-              body: JSON.stringify({}),
-              headers: { "Content-Type": "application/json", ...deviceHeaders() },
-              method: "POST",
+                body: JSON.stringify({}),
+                headers: { "Content-Type": "application/json", ...deviceHeaders() },
+                method: "POST",
               });
               const payload = await response.json().catch(() => ({})) as { transfer?: LanTransfer };
               if (!response.ok || !payload.transfer) throw new Error("peer_complete_failed");
               updateTransfer(payload.transfer);
               session!.finished = true;
+              channel.send(JSON.stringify({ type: "saved" }));
               if (session!.timeout) window.clearTimeout(session!.timeout);
               window.setTimeout(() => closePeerSession(transferId), 30_000);
             }).catch(() => void failPeerTransfer(session!.transfer, "The received file could not be saved. Ask the sender to try again."));
@@ -580,9 +572,20 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
             void failPeerTransfer(session!.transfer, "The sender sent more data than expected, so the transfer was cancelled.");
             return;
           }
+          const length = chunk.byteLength;
+          session!.queuedBytes = (session!.queuedBytes ?? 0) + length;
+          if (session!.queuedBytes > 2 * 1024 * 1024) {
+            void failPeerTransfer(session!.transfer, "The sender sent data too quickly. Update both devices and try again.");
+            return;
+          }
           session!.writeChain = session!.writeChain.then(async () => {
-            if (session!.writer) await session!.writer.write(chunk);
-            else session!.chunks?.push(chunk);
+            if (session!.finished) return;
+            await session!.sink!.write(chunk);
+            session!.queuedBytes! -= length;
+            channel.send(JSON.stringify({ type: "ack", bytes: session!.receivedBytes - session!.queuedBytes! }));
+          });
+          void session!.writeChain.catch(cause => {
+            if (!session!.finished) void failPeerTransfer(session!.transfer, receiveStorageError(cause));
           });
           session!.receivedBytes += chunk.byteLength;
           const progress = Math.min(99, Math.round((session!.receivedBytes / session!.expectedSize) * 100));
@@ -726,7 +729,11 @@ export function LanTransferProvider({ children }: { children: ReactNode }) {
     document.body.append(link);
     link.click();
     link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
+    window.setTimeout(() => {
+      URL.revokeObjectURL(objectUrl);
+      void savedSinksRef.current.get(transfer.id)?.dispose();
+      savedSinksRef.current.delete(transfer.id);
+    }, 60_000);
     peerFilesRef.current.delete(transfer.id);
     return true;
   }, []);
@@ -848,9 +855,9 @@ export function LanTransferNotifications() {
       await acceptTransfer(transfer.id);
     } catch (cause) {
       if (cause instanceof DOMException && cause.name === "AbortError") return;
-      const message = cause instanceof Error && cause.message === "save_picker_required"
-        ? "Large files require a browser where you can choose a save location. Try Chrome or Edge on desktop."
-        : "Could not start the save. Choose a save location and try again.";
+      const message = cause instanceof Error && ["storage_unavailable", "storage_full"].includes(cause.message)
+        ? receiveStorageError(cause)
+        : receiveStorageError(cause);
       setTransferActionErrors((current) => ({ ...current, [transfer.id]: message }));
     } finally {
       setSavingTransferId((current) => current === transfer.id ? null : current);
@@ -923,7 +930,7 @@ export function LanTransferNotifications() {
           {transfer.status === "pending" && (
             <div className="lan-notification-actions">
               <button type="button" className="lan-accept" disabled={savingTransferId === transfer.id} onClick={() => void saveIncomingTransfer(transfer)}>
-                {savingTransferId === transfer.id ? "Choosing save location…" : "Save file"}
+                {savingTransferId === transfer.id ? "Preparing storage…" : "Accept file"}
               </button>
               <button type="button" className="lan-decline" disabled={savingTransferId === transfer.id} onClick={() => void cancelIncomingTransfer(transfer)}>Cancel</button>
             </div>

@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "npm --prefix .. run sidecar:build && tauri build"
+    "tauri:build": "npm --prefix .. run sidecar:build && tauri build",
+    "test:responsive": "playwright test"
   },
   "dependencies": {
     "qrcode": "^1.5.4",
@@ -20,6 +21,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "@playwright/test": "^1.63.0",
     "@tauri-apps/cli": "^2.9.6",
     "@types/node": "^24.10.1",
     "@types/qrcode": "^1.5.6",

@@ -6,6 +6,8 @@ export type ResponsiveViewport = {
   isCompact: boolean;
   left: number;
   width: number;
+  top: number;
+  availableHeight: number;
 };
 
 function measureViewport(): ResponsiveViewport {
@@ -18,8 +20,10 @@ function measureViewport(): ResponsiveViewport {
   const hiddenBelowViewport = Math.max(0, layoutHeight - viewportHeight - viewportTop);
 
   return {
+    availableHeight: Math.max(0, viewportHeight - 24),
+    top: Math.round(viewportTop + 12),
     bottom: Math.round(hiddenBelowViewport + 12),
-    height: Math.round(Math.min(520, Math.max(160, viewportHeight - 24))),
+    height: Math.round(Math.min(520, Math.max(0, viewportHeight - 24))),
     isCompact: viewportWidth <= 680,
     left: Math.round(viewportLeft + 12),
     width: Math.round(Math.max(0, viewportWidth - 24)),

@@ -104,7 +104,7 @@ export default function Dashboard() {
               </select>
             </label>
             <div className="direct-send-actions"><button className="btn btn-register" type="button" disabled={!files.length || !activeRecipientId || sending} onClick={() => void send()}>{sending ? "Sending request…" : "Request direct transfer"}</button>{files.length > 0 && <button className="dashboard-text-button" type="button" onClick={() => setFiles([])}>Clear files</button>}</div>
-            <p className="nearby-privacy-note">The recipient chooses a save location before accepting. BabyShare transports only connection signals and transfer metadata.</p>
+            <p className="nearby-privacy-note">The recipient approves the transfer and saves it on their device. BabyShare transports only connection signals and transfer metadata.</p>
             {(error || lanError) && <p className="error" role="alert">{error || lanError}</p>}
           </section>
 

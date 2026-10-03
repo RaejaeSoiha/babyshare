@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createReceiveSink, receiveStorageError } from "../lib/receiveStorage";
+import type { ReceiveSink } from "../lib/receiveStorage";
 import { useSearchParams } from "react-router-dom";
 import {
   acceptQrPairing,
@@ -19,7 +21,6 @@ type ReceivedFile = {
   url?: string;
 };
 
-const MEMORY_RECEIVE_LIMIT = 32 * 1024 * 1024;
 
 function LightningMark() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.2 1.8 4.6 13h6.1l-.9 9.2L19.4 11h-6.1l-.1-9.2Z" fill="currentColor" /></svg>;
@@ -49,8 +50,9 @@ export default function GuestReceive() {
   const hasValidPairToken = /^[a-f0-9]{32}$/u.test(pairToken);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
-  const chunksRef = useRef<ArrayBuffer[]>([]);
-  const writerRef = useRef<FileSystemWritableFileStream | null>(null);
+  const sinkRef = useRef<ReceiveSink | null>(null);
+  const queuedBytesRef = useRef(0);
+  const finishedRef = useRef(false);
   const writeChainRef = useRef<Promise<void>>(Promise.resolve());
   const mimeTypeRef = useRef("application/octet-stream");
   const receivedBytesRef = useRef(0);
@@ -114,19 +116,22 @@ export default function GuestReceive() {
         }
         if (control.type !== "complete" || !pairing || receivedBytesRef.current !== pairing.file.size) {
           setError("The received file was incomplete. Ask the sender to try again.");
+          closeConnection();
+          void sinkRef.current?.dispose();
           return;
         }
         void writeChainRef.current.then(async () => {
-          await writerRef.current?.close();
-          const savedDirectly = Boolean(writerRef.current);
-          const receivedFile = writerRef.current ? null : new Blob(chunksRef.current, { type: mimeTypeRef.current });
+          const receivedFile = await sinkRef.current!.close(mimeTypeRef.current);
+          const savedDirectly = !receivedFile;
           const url = receivedFile ? URL.createObjectURL(receivedFile) : undefined;
+          finishedRef.current = true;
+          channel.send(JSON.stringify({ type: "saved" }));
           setReceived({ name: pairing.file.name, size: pairing.file.size, type: receivedFile?.type || mimeTypeRef.current, url });
           setSuccessNotice(savedDirectly ? "File saved successfully to this device." : "File received successfully. It is ready to save.");
           setProgress(100);
           setConnecting(false);
           void completeQrPairing(activeCredentials).catch(() => {});
-        }).catch(() => setError("The received file could not be saved. Ask the sender to try again."));
+        }).catch(cause => { setError(receiveStorageError(cause)); closeConnection(); void sinkRef.current?.dispose(); });
         return;
       }
       const chunk = event.data instanceof ArrayBuffer ? event.data : null;
@@ -134,11 +139,26 @@ export default function GuestReceive() {
       if (receivedBytesRef.current + chunk.byteLength > pairing.file.size) {
         setError("The sender sent more data than expected, so the transfer was stopped.");
         closeConnection();
+        void sinkRef.current?.dispose();
+        return;
+      }
+      const length = chunk.byteLength;
+      queuedBytesRef.current += length;
+      if (queuedBytesRef.current > 2 * 1024 * 1024) {
+        setError("The sender sent data too quickly. Update both devices and try again.");
+        closeConnection();
+        void sinkRef.current?.dispose();
         return;
       }
       writeChainRef.current = writeChainRef.current.then(async () => {
-        if (writerRef.current) await writerRef.current.write(chunk);
-        else chunksRef.current.push(chunk);
+        await sinkRef.current!.write(chunk);
+        queuedBytesRef.current -= length;
+        channel.send(JSON.stringify({ type: "ack", bytes: receivedBytesRef.current - queuedBytesRef.current }));
+      });
+      void writeChainRef.current.catch(cause => {
+        setError(receiveStorageError(cause));
+        closeConnection();
+        void sinkRef.current?.dispose();
       });
       receivedBytesRef.current += chunk.byteLength;
       setProgress(Math.min(99, Math.round((receivedBytesRef.current / pairing.file.size) * 100)));
@@ -153,7 +173,7 @@ export default function GuestReceive() {
       if (event.candidate) void sendQrSignal(activeCredentials, { candidate: event.candidate.toJSON(), sessionId: signal.sessionId, type: "candidate" }).catch(() => setError(pairingError(null)));
     };
     pc.onconnectionstatechange = () => {
-      if (["failed", "closed"].includes(pc.connectionState) && !received) setError(pairingError(null));
+      if (["failed", "closed"].includes(pc.connectionState) && !finishedRef.current) { setError(pairingError(null)); void sinkRef.current?.dispose(); }
     };
     pc.ondatachannel = (event) => handleDataChannel(event.channel, activeCredentials);
     await pc.setRemoteDescription(signal.description);
@@ -162,7 +182,7 @@ export default function GuestReceive() {
     await Promise.all(queued.map((candidate) => pc.addIceCandidate(candidate)));
     await pc.setLocalDescription(await pc.createAnswer());
     await sendQrSignal(activeCredentials, { description: pc.localDescription?.toJSON(), sessionId: signal.sessionId, type: "answer" });
-  }, [handleDataChannel, received]);
+  }, [handleDataChannel]);
 
   const handleSignal = useCallback(async (signal: QrSignal, activeCredentials: QrCredentials) => {
     if (signal.type === "offer") {
@@ -174,6 +194,7 @@ export default function GuestReceive() {
     } else if (signal.type === "hangup") {
       closeConnection();
       setError("The sender cancelled the direct transfer.");
+      void sinkRef.current?.dispose();
     }
   }, [closeConnection, receiveOffer]);
 
@@ -195,8 +216,11 @@ export default function GuestReceive() {
 
   useEffect(() => () => {
     closeConnection();
-    if (received?.url) URL.revokeObjectURL(received.url);
-  }, [closeConnection, received]);
+  }, [closeConnection]);
+
+  useEffect(() => () => { if (received?.url) URL.revokeObjectURL(received.url); }, [received]);
+
+  useEffect(() => () => { void sinkRef.current?.dispose(); }, []);
 
   useEffect(() => {
     if (!successNotice) return undefined;
@@ -208,25 +232,21 @@ export default function GuestReceive() {
     if (!credentials || !pairing) return;
     setAccepting(true);
     setError("");
-    chunksRef.current = [];
-    writerRef.current = null;
+    await sinkRef.current?.dispose();
+    sinkRef.current = null;
+    queuedBytesRef.current = 0;
+    finishedRef.current = false;
     writeChainRef.current = Promise.resolve();
     receivedBytesRef.current = 0;
     mimeTypeRef.current = "application/octet-stream";
     try {
-      if (window.showSaveFilePicker) {
-        const handle = await window.showSaveFilePicker({ suggestedName: pairing.file.name });
-        writerRef.current = await handle.createWritable();
-      } else if (pairing.file.size > MEMORY_RECEIVE_LIMIT) {
-        throw new Error("save_picker_required");
-      }
+      sinkRef.current = await createReceiveSink(pairing.file.name, pairing.file.size);
       const result = await acceptQrPairing(credentials);
       setPairing(result.pairing);
       setConnecting(true);
     } catch (cause) {
-      setError(cause instanceof Error && cause.message === "save_picker_required"
-        ? "This browser needs its save-file picker for transfers larger than 32 MB. Use a current desktop browser or ask the sender to choose a smaller file."
-        : pairingError(cause));
+      await sinkRef.current?.dispose();
+      if (!(cause instanceof DOMException && cause.name === "AbortError")) setError(receiveStorageError(cause));
     } finally {
       setAccepting(false);
     }

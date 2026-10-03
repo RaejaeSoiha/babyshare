@@ -211,8 +211,8 @@ export default function WorkspaceChatDock() {
   const moveDock = (event: PointerEvent<HTMLElement>) => {
     const drag = dockDragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
-    const left = Math.round(Math.min(Math.max(12, event.clientX - drag.offsetX), window.innerWidth - drag.width - 12));
-    const top = Math.round(Math.min(Math.max(12, event.clientY - drag.offsetY), window.innerHeight - drag.height - 12));
+    const left = Math.round(Math.max(12, Math.min(event.clientX - drag.offsetX, window.innerWidth - drag.width - 12)));
+    const top = Math.round(Math.max(12, Math.min(event.clientY - drag.offsetY, window.innerHeight - drag.height - 12)));
     setDockPosition({ left, top });
   };
 
@@ -223,16 +223,30 @@ export default function WorkspaceChatDock() {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
+  const viewportLeft = viewport?.left ?? 12;
+  const viewportTop = viewport?.top ?? 12;
+  const availableWidth = viewport?.width ?? window.innerWidth - 24;
+  const availableHeight = viewport?.availableHeight ?? window.innerHeight - 24;
+  const dockHeight = viewport?.height ?? 520;
+  const dockWidth = Math.min(350, window.innerWidth - 40);
+  // Re-clamp the saved drag position whenever the visible viewport changes.
   const dockStyle = isCompactViewport && viewport
     ? {
       bottom: `calc(env(safe-area-inset-bottom) + ${viewport.bottom}px)`,
       left: viewport.left,
-      maxHeight: viewport.height,
+      maxHeight: `max(0px, calc(${viewport.height}px - env(safe-area-inset-bottom)))`,
       right: "auto",
       width: viewport.width,
     }
     : dockPosition
-      ? { bottom: "auto", left: dockPosition.left, right: "auto", top: dockPosition.top, transform: "none" }
+      ? {
+          bottom: "auto",
+          left: Math.max(viewportLeft, Math.min(dockPosition.left, viewportLeft + availableWidth - dockWidth)),
+          right: "auto",
+          top: Math.max(viewportTop, Math.min(dockPosition.top, viewportTop + availableHeight - dockHeight)),
+          maxHeight: viewport?.height,
+          transform: "none",
+        }
       : undefined;
 
   return isOpen ? (

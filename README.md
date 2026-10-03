@@ -15,9 +15,18 @@ codes, and short-lived WebRTC signaling.
 - An eight-digit QR-pairing lookup that expires after ten minutes
 
 No file content, file URL, upload blob, object key, or server-side download
-copy is stored. A completed file is written to the recipient's chosen local
-location. Browsers without the File System Access API use a capped 32 MB
-in-memory fallback; larger receives require the native save-file picker.
+copy is stored on the server. Receivers can save to a chosen location when the
+browser offers a save picker. Phones, tablets, and other browsers use temporary
+on-device storage (OPFS), then offer **Download file** or **Save file**. Transfers
+remain limited to 1 GB per file. Both devices must keep BabyShare open.
+
+Large receives require HTTPS (or localhost), a browser supporting OPFS, and enough
+free device storage. Private browsing can disable this storage. A capped 32 MB
+memory fallback remains for browsers without disk storage; there is no desktop-only
+requirement. Temporary data is removed on cancellation or when leaving the receiving
+session; abandoned data older than 24 hours is reclaimed on the next receive.
+Senders wait for receiver write acknowledgements, keeping queued data bounded, and
+only show success after the receiving device finishes saving.
 
 ## Use the app
 
@@ -25,7 +34,7 @@ in-memory fallback; larger receives require the native save-file picker.
 2. Open BabyShare on the receiving device. It appears in **Nearby devices**;
    your own device is not counted.
 3. Select files or a folder, select the recipient, and request the transfer.
-4. The recipient sees the filename and size, chooses a local save location,
+4. The recipient sees the filename and size, prepares local storage,
    and accepts or declines.
 5. Keep both pages open while the WebRTC transfer completes. Either person can
    cancel; failures remain metadata only and can be retried.
@@ -117,3 +126,14 @@ npm run check:production-config
 The integration suite verifies session continuity, blocks authenticated and
 guest HTTP upload bodies, verifies recipient-approved direct-transfer metadata,
 and confirms signaling is metadata only.
+
+### Responsive UI checks
+
+Run `npm ci --prefix client`, `npx --prefix client playwright install chromium webkit`, then
+`npm run test:responsive --prefix client`. The suite starts Vite and uses mocked
+workspace data to check every route at 320–2560px, long filenames/usernames,
+landscape layouts, chat resizing, admin dialogs, and public HTML pages. It checks
+element bounds so page-level overflow clipping cannot hide a failing layout.
+
+Large-transfer browser tests also exercise 40 MiB QR and workspace transfers in Chromium
+and WebKit, verify file contents, and check cancellation and storage quota errors.
